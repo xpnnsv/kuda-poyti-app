@@ -4,105 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#ff4059">
-  <!-- Не держать старую версию страницы в кэше (особенно во встроенном браузере Telegram) -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
-  <!-- Версия файлов: tools/publish.ps1 подставляет сюда время публикации -->
-  <script>window.APP_VERSION = '202610090032';</script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap">
   <title>Куда пойти</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4C20.4 4 11 13 11 24.3 11 39.5 32 60 32 60s21-20.5 21-35.7C53 13 43.6 4 32 4z' fill='%23ff4059'/%3E%3Ccircle cx='32' cy='24' r='8' fill='%23fff'/%3E%3C/svg%3E">
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=202610090032">
+  <!--
+    Загрузчик. Этот файл НЕ МЕНЯЕТСЯ между версиями — пусть Telegram хранит его в кэше сколько угодно.
+    При каждом запуске он в обход кэша узнаёт номер последней версии (version.json)
+    и открывает app.html с этим номером, поэтому Telegram всегда скачивает свежее приложение.
+    Хэш (#tgWebAppData=...) и параметры Telegram передаются дальше без изменений.
+  -->
+  <style>
+    html, body { margin: 0; height: 100%; background: linear-gradient(165deg, #ff7a8c 0%, #ff4059 55%, #e8304a 100%); }
+  </style>
+  <script>
+    (function () {
+      function go(v) {
+        var params = new URLSearchParams(location.search);
+        params.set('v', v);
+        location.replace('app.html?' + params.toString() + location.hash);
+      }
+      var done = false;
+      var fallback = setTimeout(function () { if (!done) { done = true; go(String(Date.now())); } }, 4000);
+      fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { if (!done) { done = true; clearTimeout(fallback); go(data.v); } })
+        .catch(function () { if (!done) { done = true; clearTimeout(fallback); go(String(Date.now())); } });
+    })();
+  </script>
 </head>
-<body>
-  <!-- Заставка -->
-  <div id="splash" role="status" aria-live="polite">
-    <div class="splash-inner">
-      <svg class="splash-logo" viewBox="0 0 96 96" aria-hidden="true">
-        <path class="splash-path" d="M10 86 C 26 82, 18 64, 36 62 S 58 60, 56 50" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 9"/>
-        <g class="splash-pin">
-          <path d="M58 6c-10.5 0-19 8.2-19 18.4C39 38 58 52 58 52s19-14 19-27.6C77 14.2 68.5 6 58 6z" fill="#fff"/>
-          <circle cx="58" cy="24" r="7" fill="#ff4059"/>
-        </g>
-      </svg>
-      <h1 data-app-name>Куда пойти</h1>
-      <p id="splash-text">Ищем, куда бы сходить…</p>
-      <div class="splash-bar"><span></span></div>
-      <button id="splash-retry" class="btn btn-light" hidden>Попробовать ещё раз</button>
-    </div>
-  </div>
-
-  <div id="map"></div>
-
-  <!-- Верхняя панель: категории -->
-  <header class="topbar">
-    <nav id="chips" class="chips" aria-label="Категории"></nav>
-    <div id="pill" class="pill">Загружаю…</div>
-  </header>
-
-  <button id="locate" class="fab" type="button" aria-label="Где я">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2l-8.5 19.5L12 17l8.5 4.5z" fill="currentColor" transform="rotate(45 12 12)"/></svg>
-  </button>
-
-  <!-- Нижняя панель -->
-  <div class="bottom-bar">
-    <button id="open-filters" class="btn btn-surface" type="button">
-      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="16" cy="6" r="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="10" cy="12" r="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="18" cy="18" r="2" stroke="currentColor" stroke-width="2" fill="none"/></svg>
-      Фильтры
-      <span id="filter-badge" class="badge" hidden>0</span>
-    </button>
-    <button id="lucky" class="btn btn-primary btn-lucky" type="button">
-      <span class="dice">🎲</span> Мне повезёт
-    </button>
-  </div>
-
-  <div id="backdrop"></div>
-
-  <!-- Фильтры -->
-  <section id="filters-sheet" class="sheet" aria-label="Фильтры">
-    <div class="sheet-handle"></div>
-    <h2 class="sheet-title">Фильтры</h2>
-
-    <div class="f-group">
-      <div class="f-label">Бюджет на человека</div>
-      <div id="f-budget" class="seg"></div>
-    </div>
-
-    <div class="f-group">
-      <div class="f-label">Где хочется провести время</div>
-      <div id="f-setting" class="seg"></div>
-    </div>
-
-    <label class="switch-row">
-      <span>
-        Открыто сейчас
-        <small>По московскому времени</small>
-      </span>
-      <input id="f-open" type="checkbox">
-      <span class="switch" aria-hidden="true"></span>
-    </label>
-
-    <div class="f-actions">
-      <button id="f-reset" class="btn btn-secondary" type="button">Сбросить</button>
-      <button id="f-apply" class="btn btn-primary" type="button">Показать</button>
-    </div>
-    <p class="f-note">Цены примерные. Для кафе и ресторанов из OpenStreetMap бюджет оценивается по типу заведения.</p>
-  </section>
-
-  <!-- Карточка места -->
-  <section id="place-sheet" class="sheet" aria-label="Место"></section>
-
-  <div id="toast" role="status" aria-live="polite"></div>
-
-  <script src="js/config.js?v=202610090032"></script>
-  <script src="js/places.js?v=202610090032"></script>
-  <script src="js/hours.js?v=202610090032"></script>
-  <script src="js/osm.js?v=202610090032"></script>
-  <script src="js/map.js?v=202610090032"></script>
-  <script src="js/app.js?v=202610090032"></script>
-</body>
+<body></body>
 </html>
