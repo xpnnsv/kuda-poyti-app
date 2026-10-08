@@ -374,6 +374,11 @@
       ${p.desc ? `<p class="place-desc">${esc(p.desc)}</p>` : ''}
       ${insideHtml(p)}
       ${infoHtml(p, todayHours, site)}
+      <button class="ya-link" data-action="yandex">
+        <span class="ya-star">★</span>
+        <span class="ya-text"><b>Оценка, отзывы и фото</b><small>Откроется в Яндекс Картах</small></span>
+        <span class="ya-arrow">›</span>
+      </button>
       ${p.priceEstimated && p.source === 'osm' ? '<p class="place-note">Место из OpenStreetMap. Цена — примерная оценка по типу заведения.</p>' : ''}
       <div class="place-actions">
         <button class="btn btn-primary" data-action="route">Проложить маршрут</button>
@@ -394,6 +399,16 @@
     const zoom = opts.lucky ? Math.max(current, 15) : current;
     const degPerPx = (1.40625 * Math.cos((p.lat * Math.PI) / 180)) / Math.pow(2, zoom);
     MapView.flyTo(p.lat - window.innerHeight * 0.2 * degPerPx, p.lon, zoom);
+  }
+
+  // Поиск места в Яндекс Картах рядом с его координатами — откроется карточка с оценкой, отзывами и фото
+  // С адресом (улица + дом) Яндекс сразу открывает карточку места, а не список результатов
+  function yandexPlaceUrl(p) {
+    let text = p.name.replace(/[«»"]/g, '');
+    const parts = (p.address || '').split(',').map((s) => s.trim());
+    const house = parts.findIndex((s, i) => i > 0 && /^\d/.test(s));
+    if (house > 0) text += ', ' + parts.slice(0, house + 1).join(', ');
+    return `https://yandex.ru/maps/213/moscow/?text=${encodeURIComponent(text)}&ll=${p.lon},${p.lat}&z=17`;
   }
 
   function routeUrl(p) {
@@ -604,6 +619,7 @@
       else if (a.dataset.action === 'again') lucky();
       else if (a.dataset.action === 'route' && p) { haptic.impact(); openLink(routeUrl(p)); }
       else if (a.dataset.action === 'site') openLink(a.dataset.url);
+      else if (a.dataset.action === 'yandex' && p) { haptic.impact(); openLink(yandexPlaceUrl(p)); }
     });
     document.querySelectorAll('.sheet').forEach(enableSwipe);
 
