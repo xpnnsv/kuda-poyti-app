@@ -9,7 +9,10 @@
     food: { label: 'Еда', emoji: '🍽️' },
     museum: { label: 'Музеи', emoji: '🏛️' },
     photo: { label: 'Красивые места', emoji: '📸' },
+    mall: { label: 'ТЦ и фудкорты', emoji: '🛍️' },
   };
+  // Сколько названий показывать в списках «Где поесть» / «Развлечения»
+  const LIST_LIMIT = 12;
   const BUDGETS = [
     { v: null, label: 'Любой' },
     { v: 0, label: 'Бесплатно' },
@@ -23,7 +26,6 @@
     { v: 'indoor', label: '🏠 В помещении' },
   ];
   const SETTING_TEXT = { outdoor: '🌳 На улице', indoor: '🏠 В помещении', both: '🌳 Улица и помещение' };
-  const MOSCOW = { lat: 55.7539, lon: 37.6208 };
   const MAX_OSM_MARKERS = 150;
 
   const state = {
@@ -51,6 +53,17 @@
     return 2 * R * Math.asin(Math.sqrt(h));
   }
 
+  // Похожи ли названия: «ГУМ» и «Государственный универсальный магазин (ГУМ)», «Депо.Москва» и «Депо. Москва»
+  const GENERIC = new Set(['торговый', 'торгово', 'центр', 'комплекс', 'развлекательный', 'трц', 'тц', 'трк', 'фудкорт', 'москва', 'молл', 'mall', 'рынок']);
+  function nameTokens(s) {
+    return String(s).toLowerCase().replace(/ё/g, 'е').split(/[^\p{L}\p{N}]+/u)
+      .filter((w) => w.length >= 3 && !GENERIC.has(w));
+  }
+  function similarNames(a, b) {
+    const ta = nameTokens(a), tb = new Set(nameTokens(b));
+    return ta.some((w) => tb.has(w));
+  }
+
   function plural(n, one, few, many) {
     const m10 = n % 10, m100 = n % 100;
     if (m10 === 1 && m100 !== 11) return one;
@@ -61,6 +74,7 @@
   const money = (n) => n.toLocaleString('ru-RU');
 
   function priceText(p) {
+    if (p.cat === 'mall' && p.kind === 'mall') return 'Вход свободный';
     if (p.price === 0) return 'Бесплатно';
     if (p.cat === 'museum' || p.cat === 'photo') return `Билет ≈ ${money(p.price)} ₽`;
     return `≈ ${money(p.price)} ₽ на человека`;
@@ -159,7 +173,9 @@
       el.type = 'button';
       el.className = `mk mk--${p.cat}` + (p.source === 'osm' ? ' mk--small' : '');
       el.setAttribute('aria-label', p.name);
-      el.innerHTML = `<span>${CATS[p.cat].emoji}</span>`;
+      // Подписи: у подборки и ТЦ — с масштаба 14, у остальных — с 16 (см. style.css)
+      if (p.source === 'curated' || p.cat === 'mall') el.classList.add('mk--named');
+      el.innerHTML = `<span>${CATS[p.cat].emoji}</span><b class="mk-label">${esc(p.name)}</b>`;
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         haptic.tap();
@@ -214,7 +230,17 @@
     updatePill(0);
     try {
       const list = await OSM.load();
-      osmPlaces = list.filter((p) => !curated.some((c) => c.cat === p.cat && distance(c, p) < 80));
+      // ТЦ/фудкорт, который уже есть в подборке (ГУМ, Депо…), не дублируем, а дописываем
+      // в карточку из подборки, что внутри
+      for (const m of list) {
+        if (m.cat !== 'mall' || (!m.eat.length && !m.fun.length)) continue;
+        const twin = curated.find((c) => !c.eat && distance(c, m) < 150 && similarNames(c.name, m.name));
+        if (twin) {
+          Object.assign(twin, { eat: m.eat, fun: m.fun, kind: m.kind });
+          m.merged = true;
+        }
+      }
+      osmPlaces = list.filter((p) => !p.merged && !curated.some((c) => (c.cat === p.cat || p.cat === 'mall') && distance(c, p) < 80 && (c.cat === p.cat || similarNames(c.name, p.name))));
     } catch (e) {
       console.warn('OSM:', e);
       toast('Не получилось загрузить кафе и рестораны. Подборка мест всё равно работает');
@@ -226,7 +252,10 @@
 
   function onMove(view) {
     state.view = view;
-    $('#map').classList.toggle('zoom-far', view.zoom < 13.5);
+    const map = $('#map');
+    map.classList.toggle('zoom-far', view.zoom < 13.5);
+    map.classList.toggle('labels-named', view.zoom >= 14);
+    map.classList.toggle('labels-all', view.zoom >= 16);
     render();
   }
 
@@ -294,6 +323,32 @@
     return rows.length ? `<ul class="place-info">${rows.join('')}</ul>` : '';
   }
 
+  function listHtml(title, items) {
+    if (!items.length) return '';
+    const shown = items.slice(0, LIST_LIMIT).map((t) => `<span class="mini-tag">${esc(t)}</span>`).join('');
+    const more = items.length > LIST_LIMIT ? `<span class="mini-tag mini-tag--more">и ещё ${items.length - LIST_LIMIT}</span>` : '';
+    return `<div class="inside"><div class="inside-title">${title}</div><div class="inside-list">${shown}${more}</div></div>`;
+  }
+
+  // Что внутри ТЦ или фудкорта
+  function insideHtml(p) {
+    const eat = p.eat || [], fun = p.fun || [];
+    if (p.kind === 'food_court') {
+      // Кухни — от самых частых к редким
+      const counts = new Map();
+      for (const k of eat.flatMap((e) => e.cuisines)) counts.set(k, (counts.get(k) || 0) + 1);
+      const kitchens = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+      return listHtml('🍜 Кухни', kitchens) + listHtml('🍽️ Места', eat.map((e) => e.name)) +
+        listHtml('🎡 Развлечения рядом', fun.map((f) => f.name));
+    }
+    if (eat.length || fun.length) {
+      const funNames = fun.map((f) => (f.label && f.name.toLowerCase() !== f.label ? `${f.name} · ${f.label}` : f.name));
+      return listHtml('🎡 Развлечения', funNames) + listHtml('🍽️ Где поесть', eat.map((e) => e.name));
+    }
+    if (p.cat === 'mall') return '<p class="place-note">Что внутри, пока не отмечено на карте OpenStreetMap.</p>';
+    return '';
+  }
+
   function placeHtml(p) {
     const c = CATS[p.cat];
     const st = Hours.status(p.hours);
@@ -305,7 +360,7 @@
       <div class="place-head">
         <div class="place-icon place-icon--${p.cat}">${c.emoji}</div>
         <div class="place-title">
-          <div class="place-cat">${c.label}</div>
+          <div class="place-cat">${p.kind === 'food_court' ? 'Фудкорт' : p.kind === 'mall' ? 'Торговый центр' : c.label}</div>
           <h2>${esc(p.name)}</h2>
         </div>
         <button class="icon-btn" data-action="close" aria-label="Закрыть">✕</button>
@@ -317,6 +372,7 @@
         ${d !== null ? `<span class="tag">🚶 ${distanceText(d)}</span>` : ''}
       </div>
       ${p.desc ? `<p class="place-desc">${esc(p.desc)}</p>` : ''}
+      ${insideHtml(p)}
       ${infoHtml(p, todayHours, site)}
       ${p.priceEstimated && p.source === 'osm' ? '<p class="place-note">Место из OpenStreetMap. Цена — примерная оценка по типу заведения.</p>' : ''}
       <div class="place-actions">
@@ -414,7 +470,8 @@
       const pos = await getPosition();
       state.user = pos;
       MapView.setUser(pos.lat, pos.lon, userEl());
-      if (distance(pos, MOSCOW) > 60000) {
+      const b = cfg.MAP_BOUNDS;
+      if (pos.lat < b.south || pos.lat > b.north || pos.lon < b.west || pos.lon > b.east) {
         toast('Похоже, ты не в Москве — пока на карте только московские места');
       } else {
         MapView.flyTo(pos.lat, pos.lon, 15);
@@ -555,6 +612,8 @@
         apiKey: (cfg.YANDEX_MAPS_API_KEY || '').trim(),
         center: cfg.START_CENTER,
         zoom: cfg.START_ZOOM,
+        bounds: cfg.MAP_BOUNDS,
+        minZoom: cfg.MIN_ZOOM,
         dark: isDark(),
       });
     } catch (e) {

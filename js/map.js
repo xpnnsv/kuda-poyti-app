@@ -47,10 +47,14 @@
       await ymaps3.ready;
       if (this.cancelled) return;
       const { YMap, YMapDefaultSchemeLayer, YMapDefaultFeaturesLayer, YMapListener } = ymaps3;
-      this.map = new YMap(el, {
+      const props = {
         location: { center: [o.center[1], o.center[0]], zoom: o.zoom },
         theme: o.dark ? 'dark' : 'light',
-      });
+      };
+      // Порядок углов: юго-запад, затем северо-восток (проверено на живой карте)
+      if (o.bounds) props.restrictMapArea = [[o.bounds.west, o.bounds.south], [o.bounds.east, o.bounds.north]];
+      if (o.minZoom) props.zoomRange = { min: o.minZoom, max: 21 };
+      this.map = new YMap(el, props);
       this.map.addChild(new YMapDefaultSchemeLayer({}));
       this.map.addChild(new YMapDefaultFeaturesLayer({}));
       this.map.addChild(new YMapListener({
@@ -116,7 +120,12 @@
     async init(el, o) {
       loadCss('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css');
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js');
-      this.map = L.map(el, { zoomControl: false, attributionControl: true }).setView(o.center, o.zoom);
+      const opts = { zoomControl: false, attributionControl: true, minZoom: o.minZoom || 0 };
+      if (o.bounds) {
+        opts.maxBounds = [[o.bounds.south, o.bounds.west], [o.bounds.north, o.bounds.east]];
+        opts.maxBoundsViscosity = 1;
+      }
+      this.map = L.map(el, opts).setView(o.center, o.zoom);
       this.map.attributionControl.setPrefix(false);
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,

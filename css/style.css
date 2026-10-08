@@ -23,6 +23,7 @@
   --c-food: #ff4059;
   --c-museum: #a07be8;
   --c-photo: #35b8a2;
+  --c-mall: #6f8df0;
 
   --open: #2fa774;
   --closed: #e8304a;
@@ -312,6 +313,34 @@ button { font: inherit; color: inherit; }
 .mk--food { --c: var(--c-food); }
 .mk--museum { --c: var(--c-museum); }
 .mk--photo { --c: var(--c-photo); }
+.mk--mall { --c: var(--c-mall); }
+
+/* Подпись под меткой: у подборки и ТЦ — с масштаба 14, у остальных — с 16 */
+.mk-label {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 130px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 2px 8px rgba(45, 31, 36, 0.12);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+#map.labels-named .mk--named .mk-label,
+#map.labels-all .mk-label,
+.mk--active .mk-label { display: block; }
+#map.zoom-far .mk-label { display: none; }
+#map.zoom-far .mk--active .mk-label { display: block; }
 .mk--small { width: 28px; height: 28px; font-size: 12px; border-width: 2px; }
 .mk--active {
   transform: translate(-50%, -50%) scale(1.3);
@@ -462,6 +491,20 @@ button { font: inherit; color: inherit; }
 .place-icon--food { --c: var(--c-food); }
 .place-icon--museum { --c: var(--c-museum); }
 .place-icon--photo { --c: var(--c-photo); }
+.place-icon--mall { --c: var(--c-mall); }
+
+/* Что внутри ТЦ / фудкорта */
+.inside { margin-top: 14px; }
+.inside-title { margin-bottom: 8px; font-size: 14px; font-weight: 900; }
+.inside-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.mini-tag {
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.mini-tag--more { background: var(--accent-soft); color: var(--accent); }
 .place-title { flex: 1; min-width: 0; }
 .place-cat { color: var(--accent); font-size: 13px; font-weight: 800; }
 .place-title h2 { margin: 2px 0 0; font-size: 22px; line-height: 1.2; font-weight: 900; overflow-wrap: anywhere; }
