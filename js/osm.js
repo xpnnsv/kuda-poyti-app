@@ -63,7 +63,7 @@
   }
 
   async function load() {
-    const res = await fetch('data/osm-places.json');
+    const res = await fetch('data/osm-places.json?v=' + encodeURIComponent(window.APP_VERSION || ''));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const raw = await res.json();
     places = raw.map(toPlace).filter(Boolean);
