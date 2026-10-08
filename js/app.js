@@ -101,10 +101,16 @@
     const dark = isDark();
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     if (MapView.impl) MapView.setDark(dark);
-    if (supports('6.1')) {
+    // Шапка и фон Telegram в цветах приложения
+    const bg = dark ? '#1c1618' : '#ffffff';
+    if (supports('6.9')) {
+      tg.setHeaderColor(bg);
+      tg.setBackgroundColor(bg);
+    } else if (supports('6.1')) {
       tg.setHeaderColor('bg_color');
       tg.setBackgroundColor('bg_color');
     }
+    if (supports('7.10')) tg.setBottomBarColor(bg);
   }
 
   function initTelegram() {
@@ -280,6 +286,14 @@
   }
 
   // ---------- Карточка места ----------
+  function infoHtml(p, todayHours, site) {
+    const rows = [];
+    if (p.address) rows.push(`<li><span>📍</span>${esc(p.address)}</li>`);
+    if (todayHours) rows.push(`<li><span>🕒</span>Сегодня: ${todayHours}</li>`);
+    if (site) rows.push(`<li><span>🌐</span><a href="#" data-action="site" data-url="${esc(site)}">Сайт места</a></li>`);
+    return rows.length ? `<ul class="place-info">${rows.join('')}</ul>` : '';
+  }
+
   function placeHtml(p) {
     const c = CATS[p.cat];
     const st = Hours.status(p.hours);
@@ -303,11 +317,7 @@
         ${d !== null ? `<span class="tag">🚶 ${distanceText(d)}</span>` : ''}
       </div>
       ${p.desc ? `<p class="place-desc">${esc(p.desc)}</p>` : ''}
-      <ul class="place-info">
-        ${p.address ? `<li><span>📍</span>${esc(p.address)}</li>` : ''}
-        ${todayHours ? `<li><span>🕒</span>Сегодня: ${todayHours}</li>` : ''}
-        ${site ? `<li><span>🌐</span><a href="#" data-action="site" data-url="${esc(site)}">Сайт места</a></li>` : ''}
-      </ul>
+      ${infoHtml(p, todayHours, site)}
       ${p.priceEstimated && p.source === 'osm' ? '<p class="place-note">Место из OpenStreetMap. Цена — примерная оценка по типу заведения.</p>' : ''}
       <div class="place-actions">
         <button class="btn btn-primary" data-action="route">Проложить маршрут</button>
