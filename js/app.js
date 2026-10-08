@@ -642,6 +642,8 @@
     onMove(MapView.view());
     hideSplash();
     if (cfg.LOAD_OSM_PLACES) loadOsm();
+    // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
+    if (new URLSearchParams(location.search).get('lucky') === '1') setTimeout(lucky, 1700);
   }
 
   main();
