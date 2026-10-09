@@ -333,6 +333,20 @@
   }
 
   // Что внутри ТЦ или фудкорта
+  // Фото места (свободные лицензии с Wikimedia Commons) с подписью автора — так требует лицензия
+  function photoHtml(p) {
+    const ph = (window.PLACE_PHOTOS || {})[p.id];
+    if (!ph) return '';
+    const credit = ['Фото: ' + (ph.author || 'Wikimedia Commons'), ph.license].filter(Boolean).join(' · ');
+    const link = ph.page ? ` data-action="site" data-url="${esc(ph.page)}"` : '';
+    return `
+      <figure class="place-photo is-loading">
+        <img src="${esc(ph.src)}?v=${encodeURIComponent(window.APP_VERSION || '')}" alt="${esc(p.name)}" decoding="async"
+             onload="this.parentNode.classList.remove('is-loading')" onerror="this.parentNode.remove()">
+        <figcaption><a href="#"${link}>${esc(credit)}</a></figcaption>
+      </figure>`;
+  }
+
   // Кухни, а для ТЦ и фудкортов — что внутри (данные из Яндекс Карт)
   function insideHtml(p) {
     const eat = p.eat || [], cuisine = p.cuisine || [];
@@ -355,6 +369,7 @@
     const site = p.website ? (/^https?:\/\//.test(p.website) ? p.website : 'https://' + p.website) : null;
     return `
       <div class="sheet-handle"></div>
+      ${photoHtml(p)}
       <div class="place-head">
         <div class="place-icon place-icon--${p.cat}">${c.emoji}</div>
         <div class="place-title">
