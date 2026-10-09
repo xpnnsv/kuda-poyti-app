@@ -202,7 +202,111 @@
     return true;
   }
 
-  const allMatches = () => curated.filter(matches);
+  // Места, найденные живым поиском Яндекса (кнопка «Найти здесь»)
+  let livePlaces = [];
+  const allPlaces = () => curated.concat(livePlaces);
+  const allMatches = () => allPlaces().filter(matches);
+
+  // ---------- Живой поиск: «API поиска по организациям» Яндекса ----------
+  // Ищет в видимой части карты по выбранной категории. Результаты не сохраняются — только показываются.
+  const LIVE_QUERY = { all: 'кафе', coffee: 'кофейня', food: 'ресторан', museum: 'музей', photo: 'достопримечательность', mall: 'торговый центр' };
+  const DAY_KEYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const OSM_DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+
+  // Часы из формата Яндекса (Availabilities) в формат, который понимает hours.js
+  function hoursFromYandex(h) {
+    const av = h && h.Availabilities;
+    if (!av || !av.length) return null;
+    const week = Array(7).fill(null);
+    for (const a of av) {
+      let days = [];
+      if (a.Everyday) days = [0, 1, 2, 3, 4, 5, 6];
+      else {
+        if (a.Weekdays) days.push(0, 1, 2, 3, 4);
+        if (a.Weekend) days.push(5, 6);
+        DAY_KEYS.forEach((k, i) => { if (a[k]) days.push(i); });
+      }
+      const iv = a.TwentyFourHours ? ['00:00-24:00'] : (a.Intervals || []).map((x) => {
+        const to = String(x.to).slice(0, 5);
+        return String(x.from).slice(0, 5) + '-' + (to === '00:00' ? '24:00' : to);
+      });
+      for (const d of days) week[d] = iv.join(',');
+    }
+    if (week.every((d) => d === null)) return null;
+    if (week.every((d) => d === '00:00-24:00')) return '24/7';
+    const groups = [];
+    week.forEach((v, i) => {
+      v = v || 'off';
+      const g = groups[groups.length - 1];
+      if (g && g.v === v) g.e = i; else groups.push({ s: i, e: i, v });
+    });
+    return groups.map((g) => (g.s === g.e ? OSM_DAYS[g.s] : OSM_DAYS[g.s] + '-' + OSM_DAYS[g.e]) + ' ' + g.v).join('; ');
+  }
+
+  function catFromYandex(cats, fallback) {
+    const s = cats.join(' ').toLowerCase();
+    if (/кофейн|чайн/.test(s)) return 'coffee';
+    if (/музей|галере|выставочн/.test(s)) return 'museum';
+    if (/торговый центр|фудмолл|гастромаркет|фудкорт/.test(s)) return 'mall';
+    if (/парк|сквер|достопримечательн|смотров|набережн|памятник/.test(s)) return 'photo';
+    if (/ресторан|кафе|бар|столов|пиццери|суши|бургер|быстрое питание|пекарн|кондитерск/.test(s)) return 'food';
+    return fallback === 'all' ? 'food' : fallback;
+  }
+
+  let liveBusy = false;
+  async function liveSearch() {
+    if (liveBusy || !state.view) return;
+    liveBusy = true;
+    const btn = $('#search-here');
+    btn.classList.add('loading');
+    haptic.tap();
+    const b = state.view.bounds;
+    const params = new URLSearchParams({
+      apikey: cfg.PLACES_API_KEY.trim(),
+      text: LIVE_QUERY[state.cat] || 'кафе',
+      lang: 'ru_RU',
+      type: 'biz',
+      results: '50',
+      rspn: '1',
+      bbox: `${b.west.toFixed(5)},${b.south.toFixed(5)}~${b.east.toFixed(5)},${b.north.toFixed(5)}`,
+    });
+    try {
+      const res = await fetch('https://search-maps.yandex.ru/v1/?' + params);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const known = new Set(curated.map((p) => p.ym));
+      livePlaces = (data.features || []).map((f) => {
+        const m = f.properties.CompanyMetaData || {};
+        const cats = (m.Categories || []).map((c) => c.name);
+        return {
+          id: 'live-' + m.id,
+          ym: m.id,
+          name: m.name || f.properties.name,
+          cat: catFromYandex(cats, state.cat),
+          setting: 'indoor',
+          hours: hoursFromYandex(m.Hours),
+          address: (m.address || f.properties.description || '').replace(/^Россия,\s*/, '').replace(/^Москва,\s*/, ''),
+          desc: cats.slice(0, 3).join(' · '),
+          lat: f.geometry.coordinates[1],
+          lon: f.geometry.coordinates[0],
+          source: 'live',
+        };
+      }).filter((p) => p.ym && !known.has(p.ym));
+      render();
+      toast(livePlaces.length ? `Нашлось ещё ${livePlaces.length} ${plural(livePlaces.length, 'место', 'места', 'мест')} рядом` : 'Здесь ничего не нашлось — попробуй сдвинуть карту');
+    } catch (e) {
+      console.warn('Живой поиск:', e);
+      toast('Поиск сейчас недоступен — попробуй позже');
+    } finally {
+      liveBusy = false;
+      btn.classList.remove('loading');
+    }
+  }
+
+  function updateSearchHere() {
+    const show = !!(cfg.PLACES_API_KEY || '').trim() && !!state.view && state.view.zoom >= 13;
+    $('#search-here').hidden = !show;
+  }
 
   // ---------- Маркеры ----------
   const markerEls = new Map();
@@ -211,7 +315,7 @@
     if (!el) {
       el = document.createElement('button');
       el.type = 'button';
-      el.className = `mk mk--${p.cat} mk--named`;
+      el.className = `mk mk--${p.cat} mk--named` + (p.source === 'live' ? ' mk--small' : '');
       el.setAttribute('aria-label', p.name);
       el.innerHTML = `<span>${CATS[p.cat].emoji}</span><b class="mk-label">${esc(p.name)}</b>`;
       el.addEventListener('click', (e) => {
@@ -234,7 +338,7 @@
   // Перерисовка меток — только когда меняются фильтры или выбранное место, а не при каждом сдвиге карты
   function render() {
     if (!MapView.impl) return;
-    const places = curated.filter(matches);
+    const places = allPlaces().filter(matches);
     const sel = state.selected;
     const items = places.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, el: markerEl(p), z: sel && sel.id === p.id ? 1000 : 100 }));
     if (sel && !items.some((i) => i.id === sel.id)) {
@@ -259,6 +363,7 @@
     const map = $('#map');
     map.classList.toggle('zoom-far', view.zoom < 13.5);
     map.classList.toggle('labels-named', view.zoom >= 14);
+    updateSearchHere();
   }
 
   // ---------- Шторки ----------
@@ -444,7 +549,7 @@
   }
 
   function lucky() {
-    const pool = narrow(curated.filter(matches));
+    const pool = narrow(allPlaces().filter(matches));
     if (!pool.length) {
       haptic.notify('error');
       toast('Под такие фильтры ничего нет — попробуй их смягчить');
@@ -619,6 +724,7 @@
     $('#lucky').addEventListener('click', lucky);
     $('#locate').addEventListener('click', locate);
     $('#theme').addEventListener('click', cycleTheme);
+    $('#search-here').addEventListener('click', liveSearch);
     updateThemeButton();
     loadCloudTheme();
     $('#backdrop').addEventListener('click', () => closeSheets());

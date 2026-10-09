@@ -307,5 +307,209 @@ window.PLACE_PHOTOS = {
                    "author":  "Garage Museum of Contemporary Art",
                    "license":  "CC BY-SA 4.0",
                    "page":  "https://commons.wikimedia.org/wiki/File:%D0%97%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5_%D0%9C%D1%83%D0%B7%D0%B5%D1%8F_%D1%81%D0%BE%D0%B2%D1%80%D0%B5%D0%BC%D0%B5%D0%BD%D0%BD%D0%BE%D0%B3%D0%BE_%D0%B8%D1%81%D0%BA%D1%83%D1%81%D1%81%D1%82%D0%B2%D0%B0_%C2%AB%D0%93%D0%B0%D1%80%D0%B0%D0%B6%C2%BB.jpg"
-               }
+               },
+    "aleksandrovsky-sad":  {
+                               "src":  "img/places/aleksandrovsky-sad.jpg",
+                               "author":  "Минеева Ю. (Julmin)",
+                               "license":  "CC BY-SA 1.0",
+                               "page":  "https://commons.wikimedia.org/wiki/File:Alexander_Garden_Gates.JPG"
+                           },
+    "berezovaya-roscha":  {
+                              "src":  "img/places/berezovaya-roscha.jpg",
+                              "author":  "Andreykor",
+                              "license":  "Public domain",
+                              "page":  "https://commons.wikimedia.org/wiki/File:Berezovaya_roscha_park.JPG"
+                          },
+    "huamin-park":  {
+                        "src":  "img/places/huamin-park.webp",
+                        "author":  "Soluxe Hotel Moscow",
+                        "license":  "CC BY-SA 4.0",
+                        "page":  "https://commons.wikimedia.org/wiki/File:Chineese_park_soluxe_hotel_%D0%9Coscow_stairs.webp"
+                    },
+    "bunker-42":  {
+                      "src":  "img/places/bunker-42.jpg",
+                      "author":  "Fastboy",
+                      "license":  "CC BY-SA 3.0",
+                      "page":  "https://commons.wikimedia.org/wiki/File:Cold_War_Museum,_Moscow,_entrance.JPG"
+                  },
+    "museum-of-orient":  {
+                             "src":  "img/places/museum-of-orient.jpg",
+                             "author":  "Panther",
+                             "license":  "CC BY-SA 3.0",
+                             "page":  "https://commons.wikimedia.org/wiki/File:East_nations_art_museum_in_Moscow_shot_01.jpg"
+                         },
+    "experimentanium":  {
+                            "src":  "img/places/experimentanium.jpg",
+                            "author":  "Барвенковский",
+                            "license":  "CC BY-SA 4.0",
+                            "page":  "https://commons.wikimedia.org/wiki/File:Experimentanium_(2021-11-21)_01.jpg"
+                        },
+    "sad-ermitazh":  {
+                         "src":  "img/places/sad-ermitazh.jpg",
+                         "author":  "Vladimir OKC",
+                         "license":  "Public domain",
+                         "page":  "https://commons.wikimedia.org/wiki/File:Hermitage_Garden_Hermitage_Theater_Moscow.jpg"
+                     },
+    "aleksey-palace":  {
+                           "src":  "img/places/aleksey-palace.jpg",
+                           "author":  "A.Savin",
+                           "license":  "CC BY-SA 3.0",
+                           "page":  "https://commons.wikimedia.org/wiki/File:Kolomenskoe_Wooden_Palace_(Morning).jpg"
+                       },
+    "voroncovsky-park":  {
+                             "src":  "img/places/voroncovsky-park.jpg",
+                             "author":  "Maria Ushanova",
+                             "license":  "CC BY-SA 4.0",
+                             "page":  "https://commons.wikimedia.org/wiki/File:MG_3423_(2).JPG"
+                         },
+    "izmailovo-estate":  {
+                             "src":  "img/places/izmailovo-estate.jpg",
+                             "author":  "Alexxx1979",
+                             "license":  "CC BY-SA 4.0",
+                             "page":  "https://commons.wikimedia.org/wiki/File:Moscow._Izmaylovo_Estate._Barbican_tower_P5140022_2655_(cropped).jpg"
+                         },
+    "army-museum":  {
+                        "src":  "img/places/army-museum.jpg",
+                        "author":  "A.Savin",
+                        "license":  "CC BY-SA 3.0",
+                        "page":  "https://commons.wikimedia.org/wiki/File:Moscow_Armed_Forces_Museum.jpg"
+                    },
+    "kremlin":  {
+                    "src":  "img/places/kremlin.jpg",
+                    "author":  "Anton Zelenov",
+                    "license":  "CC BY-SA 3.0",
+                    "page":  "https://commons.wikimedia.org/wiki/File:Moscow_Kremlin_from_Bolshoy_Moskvoretsky_Bridge.jpg"
+                },
+    "lefortovsky-park":  {
+                             "src":  "img/places/lefortovsky-park.jpg",
+                             "author":  "A.Savin",
+                             "license":  "FAL",
+                             "page":  "https://commons.wikimedia.org/wiki/File:Moscow_Lefortovo_Catherine_Palace_asv2018-08_img3.jpg"
+                         },
+    "zoo-museum":  {
+                       "src":  "img/places/zoo-museum.jpg",
+                       "author":  "A.Savin",
+                       "license":  "FAL",
+                       "page":  "https://commons.wikimedia.org/wiki/File:Moscow_MSU_Zoological_Museum_asv2021-07_img01.jpg"
+                   },
+    "planetarium":  {
+                        "src":  "img/places/planetarium.jpg",
+                        "author":  "A.Savin",
+                        "license":  "FAL",
+                        "page":  "https://commons.wikimedia.org/wiki/File:Moscow_Planetarium_01-2016.jpg"
+                    },
+    "pavilion-34":  {
+                        "src":  "img/places/pavilion-34.jpg",
+                        "author":  "A.Savin",
+                        "license":  "FAL",
+                        "page":  "https://commons.wikimedia.org/wiki/File:Moscow_VDNKh_Space_Pavilion_asv2018-08_img2.jpg"
+                    },
+    "trubetskoy-estate":  {
+                              "src":  "img/places/trubetskoy-estate.jpg",
+                              "author":  "User:Simm",
+                              "license":  "CC BY-SA 2.5",
+                              "page":  "https://commons.wikimedia.org/wiki/File:Moscow_park_Trubetsky.JPG"
+                          },
+    "borodino-panorama":  {
+                              "src":  "img/places/borodino-panorama.jpg",
+                              "author":  "Florstein (Telegram:WikiPhoto.Space)",
+                              "license":  "CC BY-SA 4.0",
+                              "page":  "https://commons.wikimedia.org/wiki/File:Panorama-Museum_of_the_Battle_of_Borodino.jpg"
+                          },
+    "olympic-village-park":  {
+                                 "src":  "img/places/olympic-village-park.jpg",
+                                 "author":  "Пресс-служба Правительства Москвы",
+                                 "license":  "CC BY 4.0",
+                                 "page":  "https://commons.wikimedia.org/wiki/File:Park-olimpiyskoy-derevni-v-moskve.jpg"
+                             },
+    "park-50-oktyabrya":  {
+                              "src":  "img/places/park-50-oktyabrya.jpg",
+                              "author":  "Bogdanov-62",
+                              "license":  "CC BY-SA 4.0",
+                              "page":  "https://commons.wikimedia.org/wiki/File:Park_50_let_20180820_095440.jpg"
+                          },
+    "gon-museum":  {
+                       "src":  "img/places/gon-museum.jpg",
+                       "author":  "Losashik",
+                       "license":  "CC BY-SA 4.0",
+                       "page":  "https://commons.wikimedia.org/wiki/File:Pavillion_Skot53.jpg"
+                   },
+    "pushkin-literary":  {
+                             "src":  "img/places/pushkin-literary.jpg",
+                             "author":  "NVO",
+                             "license":  "CC BY-SA 2.5",
+                             "page":  "https://commons.wikimedia.org/wiki/File:Prechistenka_pushkin_museum_corner.jpg"
+                         },
+    "ran-viewpoint":  {
+                          "src":  "img/places/ran-viewpoint.jpg",
+                          "author":  "Михаил Иванович Лукин",
+                          "license":  "CC BY 4.0",
+                          "page":  "https://commons.wikimedia.org/wiki/File:Ras-praesidium-2013-dsc08095.jpg"
+                      },
+    "tagansky-park":  {
+                          "src":  "img/places/tagansky-park.jpg",
+                          "author":  "Akkit",
+                          "license":  "CC BY-SA 3.0",
+                          "page":  "https://commons.wikimedia.org/wiki/File:TaganskyPark.jpg"
+                      },
+    "timiryazevsky-park":  {
+                               "src":  "img/places/timiryazevsky-park.jpg",
+                               "author":  "Анатолич1",
+                               "license":  "CC0",
+                               "page":  "https://commons.wikimedia.org/wiki/File:Timiryazevsky_park_-_Pasechaya_street_entrance.jpg"
+                           },
+    "robostanciya":  {
+                         "src":  "img/places/robostanciya.jpg",
+                         "author":  "Надежда Пивоварова",
+                         "license":  "CC BY-SA 3.0",
+                         "page":  "https://commons.wikimedia.org/wiki/File:%D0%92%D0%92%D0%A6_%D0%9F%D0%B0%D0%B2%D0%B8%D0%BB%D1%8C%D0%BE%D0%BD_%E2%84%96_2_2.JPG"
+                     },
+    "sad-baumana":  {
+                        "src":  "img/places/sad-baumana.jpg",
+                        "author":  "Brateevsky",
+                        "license":  "CC BY-SA 4.0",
+                        "page":  "https://commons.wikimedia.org/wiki/File:%D0%92%D1%85%D0%BE%D0%B4_%D0%B2_%D0%A1%D0%B0%D0%B4_%D0%B8%D0%BC%D0%B5%D0%BD%D0%B8_%D0%91%D0%B0%D1%83%D0%BC%D0%B0%D0%BD%D0%B0_%D1%81%D0%BE_%D1%81%D1%82%D0%BE%D1%80%D0%BE%D0%BD%D1%8B_%D0%A1%D1%82%D0%B0%D1%80%D0%BE%D0%B9_%D0%91%D0%B0%D1%81%D0%BC%D0%B0%D0%BD%D0%BD%D0%BE%D0%B9_%D1%83%D0%BB%D0%B8%D1%86%D1%8B.JPG"
+                    },
+    "luzhkov-park":  {
+                         "src":  "img/places/luzhkov-park.jpg",
+                         "author":  "Parkkuzsad",
+                         "license":  "CC BY-SA 4.0",
+                         "page":  "https://commons.wikimedia.org/wiki/File:%D0%93%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F%D1%81%D0%B0%D0%B4%D0%BE%D0%B2%D0%BD%D0%B8%D0%BA%D0%B8.jpg"
+                     },
+    "ekaterininsky-park":  {
+                               "src":  "img/places/ekaterininsky-park.jpg",
+                               "author":  "Екатерина Борисова",
+                               "license":  "CC BY-SA 4.0",
+                               "page":  "https://commons.wikimedia.org/wiki/File:%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B0,_%D0%95%D0%BA%D0%B0%D1%82%D0%B5%D1%80%D0%B8%D0%BD%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9_%D0%BF%D0%B0%D1%80%D0%BA02.jpg"
+                           },
+    "novodevichi-prudy":  {
+                              "src":  "img/places/novodevichi-prudy.jpg",
+                              "author":  "Александр Мотин",
+                              "license":  "CC0",
+                              "page":  "https://commons.wikimedia.org/wiki/File:%D0%9F%D0%B0%D1%80%D0%BA_%D0%9D%D0%BE%D0%B2%D0%BE%D0%B4%D0%B5%D0%B2%D0%B8%D1%87%D1%8C%D0%B8_%D0%BF%D1%80%D1%83%D0%B4%D1%8B_(%D0%B8%D1%8E%D0%BB%D1%8C_2016).jpg"
+                          },
+    "hodynskoe-pole":  {
+                           "src":  "img/places/hodynskoe-pole.jpg",
+                           "author":  "Комплекс градостроительной политики и строительства город…",
+                           "license":  "CC BY 4.0",
+                           "page":  "https://commons.wikimedia.org/wiki/File:%D0%9F%D0%B0%D1%80%D0%BA_%D0%BD%D0%B0_%D0%A5%D0%BE%D0%B4%D1%8B%D0%BD%D1%81%D0%BA%D0%BE%D0%BC_%D0%BF%D0%BE%D0%BB%D0%B5_(%D0%B0%D0%B2%D0%B3%D1%83%D1%81%D1%82_2018)_11.jpg"
+                       },
+    "akveduk-park":  {
+                         "src":  "img/places/akveduk-park.jpg",
+                         "author":  "Tipa.melnik",
+                         "license":  "CC BY-SA 4.0",
+                         "page":  "https://commons.wikimedia.org/wiki/File:%D0%A0%D0%BE%D1%81%D1%82%D0%BE%D0%BA%D0%B8%D0%BD%D0%BE-%D0%B0%D0%BA%D0%B2%D0%B5%D0%B4%D1%83%D0%BA.JPG"
+                     },
+    "sad-buduschego":  {
+                           "src":  "img/places/sad-buduschego.jpg",
+                           "author":  "Muscovite20",
+                           "license":  "CC BY-SA 4.0",
+                           "page":  "https://commons.wikimedia.org/wiki/File:%D0%A0%D0%BE%D1%81%D1%82%D0%BE%D0%BA%D0%B8%D0%BD%D0%BE_-_%D0%BF%D0%B0%D1%80%D0%BA_%D0%A1%D0%B0%D0%B4_%D0%91%D1%83%D0%B4%D1%83%D1%89%D0%B5%D0%B3%D0%BE,_%D0%9B%D0%B5%D0%BE%D0%BD%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B9_%D0%BF%D1%80%D1%83%D0%B4.jpg"
+                       },
+    "sirenevy-sad":  {
+                         "src":  "img/places/sirenevy-sad.jpg",
+                         "author":  "Kristy2906",
+                         "license":  "CC BY-SA 4.0",
+                         "page":  "https://commons.wikimedia.org/wiki/File:%D0%A1%D0%B8%D1%80%D0%B5%D0%BD%D0%B5%D0%B2%D1%8B%D0%B9_%D1%81%D0%B0%D0%B4.jpg"
+                     }
 };

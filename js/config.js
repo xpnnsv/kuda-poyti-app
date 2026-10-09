@@ -15,4 +15,8 @@ window.APP_CONFIG = {
   MAP_BOUNDS: { south: 55.10, west: 36.75, north: 56.05, east: 38.00 },
   MIN_ZOOM: 9,
 
+  // Ключ «API поиска по организациям» (developer.tech.yandex.ru) — включает кнопку «Найти здесь».
+  // Пусто — кнопки нет, работает только подборка.
+  PLACES_API_KEY: '',
+
 };
