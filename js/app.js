@@ -108,9 +108,58 @@
   }
 
   // ---------- Тема и Telegram ----------
+  // Тема: 'auto' — как в Telegram (или в системе), 'light', 'dark'. Выбор запоминается.
+  const THEMES = ['auto', 'light', 'dark'];
+  const THEME_NAMES = { auto: inTelegram ? 'как в Telegram' : 'как в системе', light: 'светлая', dark: 'тёмная' };
+  const THEME_ICONS = {
+    auto: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>',
+    light: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    dark: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="currentColor"/></svg>',
+  };
+  let themePref = 'auto';
+  try { themePref = localStorage.getItem('theme') || 'auto'; } catch (e) { /* хранилище недоступно */ }
+  if (!THEMES.includes(themePref)) themePref = 'auto';
+
   function isDark() {
+    if (themePref === 'light') return false;
+    if (themePref === 'dark') return true;
     if (inTelegram) return tg.colorScheme === 'dark';
     return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+
+  function updateThemeButton() {
+    const btn = $('#theme');
+    btn.innerHTML = THEME_ICONS[themePref];
+    btn.setAttribute('aria-label', 'Тема: ' + THEME_NAMES[themePref]);
+  }
+
+  function setTheme(pref, silent) {
+    themePref = pref;
+    try { localStorage.setItem('theme', pref); } catch (e) { /* хранилище недоступно */ }
+    applyTheme();
+    updateThemeButton();
+    if (!silent) {
+      if (supports('6.9')) tg.CloudStorage.setItem('theme', pref);
+      haptic.tap();
+      toast('Тема: ' + THEME_NAMES[pref]);
+      const btn = $('#theme');
+      btn.classList.remove('spin');
+      void btn.offsetWidth;
+      btn.classList.add('spin');
+      setTimeout(() => btn.classList.remove('spin'), 400);
+    }
+  }
+
+  function cycleTheme() {
+    setTheme(THEMES[(THEMES.indexOf(themePref) + 1) % THEMES.length]);
+  }
+
+  // В Telegram тема синхронизируется между устройствами через облачное хранилище
+  function loadCloudTheme() {
+    if (!supports('6.9')) return;
+    tg.CloudStorage.getItem('theme', (err, value) => {
+      if (!err && THEMES.includes(value) && value !== themePref) setTheme(value, true);
+    });
   }
 
   function applyTheme() {
@@ -554,6 +603,9 @@
     $('#open-filters').addEventListener('click', () => { haptic.tap(); syncFilters(); openSheet('filters'); });
     $('#lucky').addEventListener('click', lucky);
     $('#locate').addEventListener('click', locate);
+    $('#theme').addEventListener('click', cycleTheme);
+    updateThemeButton();
+    loadCloudTheme();
     $('#backdrop').addEventListener('click', () => closeSheets());
     $('#splash-retry').addEventListener('click', () => location.reload());
     $('#place-sheet').addEventListener('click', (e) => {
