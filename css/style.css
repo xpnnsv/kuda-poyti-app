@@ -359,11 +359,9 @@ button { font: inherit; color: inherit; }
   text-overflow: ellipsis;
   pointer-events: none;
 }
-#map.labels-named .mk--named .mk-label,
-#map.labels-all .mk-label,
+/* Подпись показывается, когда ей хватает места (решает раскладка в app.js) */
+.mk--label .mk-label,
 .mk--active .mk-label { display: block; }
-#map.zoom-far .mk-label { display: none; }
-#map.zoom-far .mk--active .mk-label { display: block; }
 .mk--small { width: 28px; height: 28px; font-size: 12px; border-width: 2px; }
 .mk--active {
   transform: translate(-50%, -50%) scale(1.3);

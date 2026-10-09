@@ -335,35 +335,96 @@
     return el;
   }
 
-  // Перерисовка меток — только когда меняются фильтры или выбранное место, а не при каждом сдвиге карты
+  // Перерисовка меток: при смене фильтров, выбранного места и после движения карты
+  // ---------- Метки «по мере приближения» ----------
+  // Метки раскладываются от самых популярных мест (по числу оценок в Яндексе) к менее популярным.
+  // Метка, которая налезла бы на уже поставленную, пропускается; подпись показывается, только
+  // если ей хватает места. Поэтому издалека видны главные места, а при приближении — всё больше
+  // заведений и их названий.
+  const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+  // У ТЦ оценок на порядок больше, чем у парков и музеев, — без весов издалека карта состояла бы
+  // из одних торговых центров. Для прогулок важнее красивые места и музеи.
+  const CAT_WEIGHT = { photo: 2.5, museum: 2, coffee: 1.5, food: 1, mall: 0.5 };
+  const priority = (p) => (p.pop || 0) * (CAT_WEIGHT[p.cat] || 1);
+  // Порог важности по масштабу: издалека — только самые известные места, с 14-го масштаба — всё
+  const minPriority = (z) => (z < 10.5 ? 100000 : z < 11.5 ? 40000 : z < 12.5 ? 15000 : z < 13.5 ? 5000 : 0);
+
+  function layout(places, view) {
+    const mapEl = $('#map');
+    const w = mapEl.clientWidth || window.innerWidth, h = mapEl.clientHeight || window.innerHeight;
+    const b = view.bounds;
+    const mN = merc(b.north), mS = merc(b.south);
+    const far = view.zoom < 13.5;
+    const R = far ? 13 : 19;                 // радиус метки, px
+    const GAP = far ? 30 : 42;               // минимальное расстояние между центрами меток, px
+    const sel = state.selected;
+
+    const pts = [];
+    for (const p of places) {
+      const x = ((p.lon - b.west) / (b.east - b.west)) * w;
+      const y = ((mN - merc(p.lat)) / (mN - mS)) * h;
+      // считаем и за краем экрана (полэкрана), чтобы при сдвиге карты метки не «выпрыгивали»
+      if (x < -w / 2 || x > w * 1.5 || y < -h / 2 || y > h * 1.5) continue;
+      const selected = !!sel && sel.id === p.id;
+      pts.push({ p, x, y, selected, inView: x >= 0 && x <= w && y >= 0 && y <= h, prio: selected ? Infinity : priority(p) });
+    }
+    pts.sort((a, c) => c.prio - a.prio);
+
+    // Порог — только в режиме «Все»: если выбрана категория, показываем её места сразу (без наложений)
+    const minP = state.cat === 'all' ? minPriority(view.zoom) : 0;
+    const shown = [];
+    for (const t of pts) {
+      if (t.prio < minP && t.p.source !== 'live') continue; // найденное через «Найти здесь» показываем всегда
+      if (!t.selected && shown.some((s) => Math.abs(s.x - t.x) < GAP && Math.abs(s.y - t.y) < GAP)) continue;
+      shown.push(t);
+    }
+
+    // Подписи: только с масштаба 12 и только если не налезают на метки и другие подписи
+    const boxes = shown.map((s) => [s.x - R, s.y - R, s.x + R, s.y + R]);
+    const hit = (a) => boxes.some((bx) => a[0] < bx[2] && a[2] > bx[0] && a[1] < bx[3] && a[3] > bx[1]);
+    for (const s of shown) {
+      s.label = false;
+      if (view.zoom < 12) continue;
+      const lw = Math.min(130, s.p.name.length * 6.2 + 16);
+      const box = [s.x - lw / 2, s.y + R + 2, s.x + lw / 2, s.y + R + 20];
+      if (s.selected || !hit(box)) { s.label = true; boxes.push(box); }
+    }
+    const inView = pts.filter((t) => t.inView).length;
+    const shownInView = shown.filter((t) => t.inView).length;
+    return { shown, inView, shownInView };
+  }
+
   function render() {
-    if (!MapView.impl) return;
+    if (!MapView.impl || !state.view) return;
     const places = allPlaces().filter(matches);
     const sel = state.selected;
-    const items = places.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, el: markerEl(p), z: sel && sel.id === p.id ? 1000 : 100 }));
-    if (sel && !items.some((i) => i.id === sel.id)) {
-      items.push({ id: sel.id, lat: sel.lat, lon: sel.lon, el: markerEl(sel), z: 1000 });
-    }
+    if (sel && !places.includes(sel)) places.push(sel);
+    const { shown, inView, shownInView } = layout(places, state.view);
+    const items = shown.map((s) => {
+      const el = markerEl(s.p);
+      el.classList.toggle('mk--label', s.label);
+      return { id: s.p.id, lat: s.p.lat, lon: s.p.lon, el, z: s.selected ? 1000 : Math.min(999, Math.round(Math.log10((s.p.pop || 0) + 1) * 100)) };
+    });
     for (const [id, el] of markerEls) el.classList.toggle('mk--active', !!sel && sel.id === id);
     MapView.setMarkers(items);
-    updatePill(places.length);
+    updatePill(places.length, inView, shownInView);
   }
 
-  function updatePill(n) {
+  function updatePill(total, inView, shownInView) {
     const pill = $('#pill');
-    pill.classList.toggle('pill--warn', n === 0);
-    pill.textContent = n === 0
-      ? 'Ничего не нашлось — попробуй смягчить фильтры'
-      : `${n} ${plural(n, 'место', 'места', 'мест')} на карте`;
+    pill.classList.toggle('pill--warn', total === 0);
+    if (total === 0) pill.textContent = 'Ничего не нашлось — попробуй смягчить фильтры';
+    else if (shownInView < inView) pill.textContent = `${shownInView} из ${inView} · приблизь — покажу больше`;
+    else pill.textContent = `${inView} ${plural(inView, 'место', 'места', 'мест')} здесь`;
   }
 
-  // При движении карты меняем только размер меток и подписи — это дёшево
+  // После движения карты — новая раскладка меток под масштаб
   function onMove(view) {
     state.view = view;
     const map = $('#map');
     map.classList.toggle('zoom-far', view.zoom < 13.5);
-    map.classList.toggle('labels-named', view.zoom >= 14);
     updateSearchHere();
+    render(); // раскладка меток под новый масштаб — быстро (около 1 мс на 250 мест)
   }
 
   // ---------- Шторки ----------
