@@ -99,6 +99,7 @@
     const ends = [];
     for (const [s, e] of week[day]) if (minutes >= s && minutes < e) ends.push(e);
     for (const [, e] of week[prev]) if (e > 1440 && minutes < e - 1440) ends.push(e - 1440);
+    if (week[day].some(([s, e]) => s === 0 && e >= 1440)) return { state: 'open', text: 'Открыто круглосуточно' };
     if (ends.length) return { state: 'open', text: 'Открыто до ' + fmt(Math.max(...ends)) };
 
     for (let offset = 0; offset < 7; offset++) {
@@ -119,7 +120,7 @@
     if (isAllDay(week)) return 'круглосуточно';
     const { day } = moscowNow(date);
     if (!week[day].length) return 'выходной';
-    return week[day].map(([s, e]) => fmt(s) + '–' + fmt(e)).join(', ');
+    return week[day].map(([s, e]) => (s === 0 && e >= 1440 ? 'круглосуточно' : fmt(s) + '–' + fmt(e))).join(', ');
   }
 
   window.Hours = { parse, status, today };

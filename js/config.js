@@ -15,8 +15,4 @@ window.APP_CONFIG = {
   MAP_BOUNDS: { south: 55.10, west: 36.75, north: 56.05, east: 38.00 },
   MIN_ZOOM: 9,
 
-  // Показывать тысячи кафе, ресторанов и музеев из OpenStreetMap (файл data/osm-places.json)
-  LOAD_OSM_PLACES: true,
-  // С какого масштаба они появляются на карте (чем больше число, тем ближе)
-  OSM_MIN_ZOOM: 14,
 };

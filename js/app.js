@@ -26,7 +26,6 @@
     { v: 'indoor', label: '🏠 В помещении' },
   ];
   const SETTING_TEXT = { outdoor: '🌳 На улице', indoor: '🏠 В помещении', both: '🌳 Улица и помещение' };
-  const MAX_OSM_MARKERS = 150;
 
   const state = {
     cat: 'all',
@@ -38,7 +37,6 @@
     selected: null,
     lucky: false,
     recent: [],
-    osmLoading: false,
   };
 
   const $ = (s) => document.querySelector(s);
@@ -53,17 +51,6 @@
     return 2 * R * Math.asin(Math.sqrt(h));
   }
 
-  // Похожи ли названия: «ГУМ» и «Государственный универсальный магазин (ГУМ)», «Депо.Москва» и «Депо. Москва»
-  const GENERIC = new Set(['торговый', 'торгово', 'центр', 'комплекс', 'развлекательный', 'трц', 'тц', 'трк', 'фудкорт', 'москва', 'молл', 'mall', 'рынок']);
-  function nameTokens(s) {
-    return String(s).toLowerCase().replace(/ё/g, 'е').split(/[^\p{L}\p{N}]+/u)
-      .filter((w) => w.length >= 3 && !GENERIC.has(w));
-  }
-  function similarNames(a, b) {
-    const ta = nameTokens(a), tb = new Set(nameTokens(b));
-    return ta.some((w) => tb.has(w));
-  }
-
   function plural(n, one, few, many) {
     const m10 = n % 10, m100 = n % 100;
     if (m10 === 1 && m100 !== 11) return one;
@@ -71,13 +58,28 @@
     return many;
   }
 
-  const money = (n) => n.toLocaleString('ru-RU');
 
+  // Цены — как в Яндекс Картах: средний чек или стоимость билета
   function priceText(p) {
-    if (p.cat === 'mall' && p.kind === 'mall') return 'Вход свободный';
-    if (p.price === 0) return 'Бесплатно';
-    if (p.cat === 'museum' || p.cat === 'photo') return `Билет ≈ ${money(p.price)} ₽`;
-    return `≈ ${money(p.price)} ₽ на человека`;
+    if (p.bill) return `Средний чек ${p.bill}`;
+    if (p.tickets) return `Билет ${p.tickets}`;
+    if (p.kind === 'mall') return 'Вход свободный';
+    if (p.free) return 'Бесплатно';
+    if (p.metro) return 'Вход по билету на метро';
+    return 'Цена — в Яндекс Картах';
+  }
+
+  // Минимальная цена для фильтра «Бюджет»: «600–800 ₽» → 600, «от 499 ₽» → 499, «до 2000 ₽» → 2000.
+  // null — цена неизвестна, такое место при включённом фильтре бюджета не показываем.
+  function minPrice(p) {
+    if (p.free || p.kind === 'mall') return 0;
+    const s = p.bill || p.tickets;
+    if (s) {
+      const n = parseInt(s.replace(/\s/g, '').match(/\d+/), 10);
+      return Number.isFinite(n) ? n : null;
+    }
+    if (p.metro) return 100;
+    return null;
   }
 
   function distanceText(d) {
@@ -142,27 +144,16 @@
   // ---------- Фильтрация ----------
   function matches(p) {
     if (state.cat !== 'all' && p.cat !== state.cat) return false;
-    if (state.budget !== null && p.price > state.budget) return false;
+    if (state.budget !== null) {
+      const m = minPrice(p);
+      if (m === null || m > state.budget) return false;
+    }
     if (state.setting !== 'any' && p.setting !== state.setting && p.setting !== 'both') return false;
     if (state.openNow && Hours.status(p.hours).state !== 'open') return false;
     return true;
   }
 
-  // Места из OSM без тех, что уже есть в подборке
-  let osmPlaces = [];
-  const osmMatches = () => osmPlaces.filter(matches);
-  const allMatches = () => curated.filter(matches).concat(osmMatches());
-
-  function visibleOsm() {
-    const v = state.view;
-    if (!v || v.zoom < cfg.OSM_MIN_ZOOM) return [];
-    const b = v.bounds;
-    const center = { lat: (b.north + b.south) / 2, lon: (b.east + b.west) / 2 };
-    return osmPlaces
-      .filter((p) => p.lat >= b.south && p.lat <= b.north && p.lon >= b.west && p.lon <= b.east && matches(p))
-      .sort((a, c) => distance(a, center) - distance(c, center))
-      .slice(0, MAX_OSM_MARKERS);
-  }
+  const allMatches = () => curated.filter(matches);
 
   // ---------- Маркеры ----------
   const markerEls = new Map();
@@ -171,10 +162,8 @@
     if (!el) {
       el = document.createElement('button');
       el.type = 'button';
-      el.className = `mk mk--${p.cat}` + (p.source === 'osm' ? ' mk--small' : '');
+      el.className = `mk mk--${p.cat} mk--named`;
       el.setAttribute('aria-label', p.name);
-      // Подписи: у подборки и ТЦ — с масштаба 14, у остальных — с 16 (см. style.css)
-      if (p.source === 'curated' || p.cat === 'mall') el.classList.add('mk--named');
       el.innerHTML = `<span>${CATS[p.cat].emoji}</span><b class="mk-label">${esc(p.name)}</b>`;
       el.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -193,70 +182,34 @@
     return el;
   }
 
+  // Перерисовка меток — только когда меняются фильтры или выбранное место, а не при каждом сдвиге карты
   function render() {
     if (!MapView.impl) return;
     const places = curated.filter(matches);
-    const osm = visibleOsm();
     const sel = state.selected;
-    const z = (p, base) => (sel && sel.id === p.id ? 1000 : base);
-    const items = places.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, el: markerEl(p), z: z(p, 100) }))
-      .concat(osm.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, el: markerEl(p), z: z(p, 0) })));
+    const items = places.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, el: markerEl(p), z: sel && sel.id === p.id ? 1000 : 100 }));
     if (sel && !items.some((i) => i.id === sel.id)) {
       items.push({ id: sel.id, lat: sel.lat, lon: sel.lon, el: markerEl(sel), z: 1000 });
     }
     for (const [id, el] of markerEls) el.classList.toggle('mk--active', !!sel && sel.id === id);
     MapView.setMarkers(items);
-    updatePill(places.length + osm.length);
+    updatePill(places.length);
   }
 
   function updatePill(n) {
     const pill = $('#pill');
-    const v = state.view;
-    pill.classList.toggle('pill--warn', n === 0 && !state.osmLoading);
-    if (state.osmLoading) {
-      pill.innerHTML = '<span class="spinner"></span>Загружаю кафе и рестораны…';
-    } else if (n === 0) {
-      pill.textContent = 'Ничего не нашлось — попробуй смягчить фильтры';
-    } else {
-      let text = `${n} ${plural(n, 'место', 'места', 'мест')} на карте`;
-      if (cfg.LOAD_OSM_PLACES && v && v.zoom < cfg.OSM_MIN_ZOOM) text += ' · приблизь, чтобы найти больше';
-      pill.textContent = text;
-    }
+    pill.classList.toggle('pill--warn', n === 0);
+    pill.textContent = n === 0
+      ? 'Ничего не нашлось — попробуй смягчить фильтры'
+      : `${n} ${plural(n, 'место', 'места', 'мест')} на карте`;
   }
 
-  // ---------- Места из OpenStreetMap ----------
-  async function loadOsm() {
-    state.osmLoading = true;
-    updatePill(0);
-    try {
-      const list = await OSM.load();
-      // ТЦ/фудкорт, который уже есть в подборке (ГУМ, Депо…), не дублируем, а дописываем
-      // в карточку из подборки, что внутри
-      for (const m of list) {
-        if (m.cat !== 'mall' || (!m.eat.length && !m.fun.length)) continue;
-        const twin = curated.find((c) => !c.eat && distance(c, m) < 150 && similarNames(c.name, m.name));
-        if (twin) {
-          Object.assign(twin, { eat: m.eat, fun: m.fun, kind: m.kind });
-          m.merged = true;
-        }
-      }
-      osmPlaces = list.filter((p) => !p.merged && !curated.some((c) => (c.cat === p.cat || p.cat === 'mall') && distance(c, p) < 80 && (c.cat === p.cat || similarNames(c.name, p.name))));
-    } catch (e) {
-      console.warn('OSM:', e);
-      toast('Не получилось загрузить кафе и рестораны. Подборка мест всё равно работает');
-    }
-    state.osmLoading = false;
-    render();
-    if ($('#filters-sheet').classList.contains('open')) syncFilters();
-  }
-
+  // При движении карты меняем только размер меток и подписи — это дёшево
   function onMove(view) {
     state.view = view;
     const map = $('#map');
     map.classList.toggle('zoom-far', view.zoom < 13.5);
     map.classList.toggle('labels-named', view.zoom >= 14);
-    map.classList.toggle('labels-all', view.zoom >= 16);
-    render();
   }
 
   // ---------- Шторки ----------
@@ -331,22 +284,18 @@
   }
 
   // Что внутри ТЦ или фудкорта
+  // Кухни, а для ТЦ и фудкортов — что внутри (данные из Яндекс Карт)
   function insideHtml(p) {
-    const eat = p.eat || [], fun = p.fun || [];
+    const eat = p.eat || [], cuisine = p.cuisine || [];
+    const fun = (p.fun || []).map(([name, label]) => (label ? `${name} · ${label}` : name));
     if (p.kind === 'food_court') {
-      // Кухни — от самых частых к редким
-      const counts = new Map();
-      for (const k of eat.flatMap((e) => e.cuisines)) counts.set(k, (counts.get(k) || 0) + 1);
-      const kitchens = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
-      return listHtml('🍜 Кухни', kitchens) + listHtml('🍽️ Места', eat.map((e) => e.name)) +
-        listHtml('🎡 Развлечения рядом', fun.map((f) => f.name));
+      return listHtml('🍜 Кухни', cuisine) + listHtml('🍽️ Места внутри', eat) + listHtml('🎡 Развлечения', fun);
     }
-    if (eat.length || fun.length) {
-      const funNames = fun.map((f) => (f.label && f.name.toLowerCase() !== f.label ? `${f.name} · ${f.label}` : f.name));
-      return listHtml('🎡 Развлечения', funNames) + listHtml('🍽️ Где поесть', eat.map((e) => e.name));
+    if (p.kind === 'mall') {
+      if (!eat.length && !fun.length) return '<p class="place-note">Что внутри — смотри в карточке Яндекс Карт ниже.</p>';
+      return listHtml('🎡 Развлечения', fun) + listHtml('🍽️ Где поесть', eat);
     }
-    if (p.cat === 'mall') return '<p class="place-note">Что внутри, пока не отмечено на карте OpenStreetMap.</p>';
-    return '';
+    return listHtml('🍜 Кухня', cuisine);
   }
 
   function placeHtml(p) {
@@ -379,7 +328,6 @@
         <span class="ya-text"><b>Оценка, отзывы и фото</b><small>Откроется в Яндекс Картах</small></span>
         <span class="ya-arrow">›</span>
       </button>
-      ${p.priceEstimated && p.source === 'osm' ? '<p class="place-note">Место из OpenStreetMap. Цена — примерная оценка по типу заведения.</p>' : ''}
       <div class="place-actions">
         <button class="btn btn-primary" data-action="route">Проложить маршрут</button>
         ${state.lucky ? '<button class="btn btn-secondary" data-action="again">🎲 Ещё вариант</button>' : ''}
@@ -404,6 +352,8 @@
   // Поиск места в Яндекс Картах рядом с его координатами — откроется карточка с оценкой, отзывами и фото
   // С адресом (улица + дом) Яндекс сразу открывает карточку места, а не список результатов
   function yandexPlaceUrl(p) {
+    // У мест из подборки есть номер организации в Яндексе — открываем ровно её карточку
+    if (p.ym) return `https://yandex.ru/maps/org/${p.ym}/`;
     let text = p.name.replace(/[«»"]/g, '');
     const parts = (p.address || '').split(',').map((s) => s.trim());
     const house = parts.findIndex((s, i) => i > 0 && /^\d/.test(s));
@@ -430,16 +380,12 @@
   }
 
   function lucky() {
-    const fromCurated = narrow(curated.filter(matches));
-    const fromOsm = narrow(osmMatches());
-    if (!fromCurated.length && !fromOsm.length) {
+    const pool = narrow(curated.filter(matches));
+    if (!pool.length) {
       haptic.notify('error');
       toast('Под такие фильтры ничего нет — попробуй их смягчить');
       return;
     }
-    // Места из подборки выпадают чаще, чем случайные кафе из OSM
-    const useCurated = fromCurated.length && (!fromOsm.length || Math.random() < 0.7);
-    const pool = useCurated ? fromCurated : fromOsm;
     const pick = pool[Math.floor(Math.random() * pool.length)];
     state.recent.push(pick.id);
     if (state.recent.length > 15) state.recent.shift();
@@ -640,8 +586,8 @@
     document.body.dataset.map = MapView.provider;
     MapView.onMove(onMove);
     onMove(MapView.view());
+    render();
     hideSplash();
-    if (cfg.LOAD_OSM_PLACES) loadOsm();
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
     if (new URLSearchParams(location.search).get('lucky') === '1') setTimeout(lucky, 1700);
   }
