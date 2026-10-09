@@ -75,10 +75,8 @@ button { font: inherit; color: inherit; }
   left: 0;
   right: 0;
   bottom: calc(var(--safe-bottom) + 88px);
-  overflow: hidden;
-  border-radius: 0 0 28px 28px;
   background: var(--surface-2);
-  box-shadow: 0 6px 24px rgba(255, 64, 89, 0.1);
+  /* без overflow:hidden и скругления: обрезка карты на каждом кадре тормозит на телефонах */
 }
 
 /* ---------- Заставка ---------- */
@@ -325,11 +323,12 @@ button { font: inherit; color: inherit; }
   border: 3px solid #fff;
   border-radius: 50%;
   background: var(--c);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--c) 45%, transparent), 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); /* простая тень — дешевле при движении карты */
+  contain: layout style;
   font-size: 17px;
   line-height: 1;
   cursor: pointer;
-  transition: transform 0.2s cubic-bezier(.3, .7, .4, 1.4), box-shadow 0.2s;
+  transition: transform 0.2s cubic-bezier(.3, .7, .4, 1.4);
 }
 .mk span { pointer-events: none; }
 .mk--coffee { --c: var(--c-coffee); }
@@ -348,8 +347,8 @@ button { font: inherit; color: inherit; }
   max-width: 130px;
   padding: 2px 8px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  box-shadow: 0 2px 8px rgba(45, 31, 36, 0.12);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(45, 31, 36, 0.18);
   color: var(--text);
   font-size: 11px;
   font-weight: 800;
@@ -663,7 +662,7 @@ button { font: inherit; color: inherit; }
 /* ---------- Карта OpenStreetMap (Leaflet) ---------- */
 .leaflet-container { background: var(--surface-2); font: inherit; }
 /* Чуть приглушаем и «утепляем» карту, чтобы она не спорила с розовым */
-.leaflet-tile-pane { filter: saturate(0.7) sepia(0.08) brightness(1.02); }
+/* В светлой теме фильтр на плитки не накладываем — он дорогой при прокрутке */
 :root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.88) contrast(0.88) saturate(0.45) sepia(0.12); }
 .leaflet-control-attribution {
   font-size: 10px;

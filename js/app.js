@@ -356,38 +356,42 @@
     const mN = merc(b.north), mS = merc(b.south);
     const far = view.zoom < 13.5;
     const R = far ? 13 : 19;                 // радиус метки, px
-    const GAP = far ? 30 : 42;               // минимальное расстояние между центрами меток, px
+    const GAP = far ? 32 : 46;               // минимальное расстояние между центрами меток, px
+    const MAX_MARKERS = 70;                  // больше меток телефону рисовать тяжело
+    const MAX_LABELS = 30;
     const sel = state.selected;
 
     const pts = [];
     for (const p of places) {
       const x = ((p.lon - b.west) / (b.east - b.west)) * w;
       const y = ((mN - merc(p.lat)) / (mN - mS)) * h;
-      // считаем и за краем экрана (полэкрана), чтобы при сдвиге карты метки не «выпрыгивали»
-      if (x < -w / 2 || x > w * 1.5 || y < -h / 2 || y > h * 1.5) continue;
+      // считаем и чуть за краем экрана (четверть), чтобы при сдвиге карты метки не «выпрыгивали»
+      if (x < -w / 4 || x > w * 1.25 || y < -h / 4 || y > h * 1.25) continue;
       const selected = !!sel && sel.id === p.id;
       pts.push({ p, x, y, selected, inView: x >= 0 && x <= w && y >= 0 && y <= h, prio: selected ? Infinity : priority(p) });
     }
-    pts.sort((a, c) => c.prio - a.prio);
+    pts.sort((a, c) => (c.inView - a.inView) || (c.prio - a.prio));
 
     // Порог — только в режиме «Все»: если выбрана категория, показываем её места сразу (без наложений)
     const minP = state.cat === 'all' ? minPriority(view.zoom) : 0;
     const shown = [];
     for (const t of pts) {
       if (t.prio < minP && t.p.source !== 'live') continue; // найденное через «Найти здесь» показываем всегда
+      if (!t.selected && shown.length >= MAX_MARKERS) continue;
       if (!t.selected && shown.some((s) => Math.abs(s.x - t.x) < GAP && Math.abs(s.y - t.y) < GAP)) continue;
       shown.push(t);
     }
 
     // Подписи: только с масштаба 12 и только если не налезают на метки и другие подписи
     const boxes = shown.map((s) => [s.x - R, s.y - R, s.x + R, s.y + R]);
+    let labels = 0;
     const hit = (a) => boxes.some((bx) => a[0] < bx[2] && a[2] > bx[0] && a[1] < bx[3] && a[3] > bx[1]);
     for (const s of shown) {
       s.label = false;
-      if (view.zoom < 12) continue;
+      if (view.zoom < 12 || (!s.selected && (!s.inView || labels >= MAX_LABELS))) continue;
       const lw = Math.min(130, s.p.name.length * 6.2 + 16);
       const box = [s.x - lw / 2, s.y + R + 2, s.x + lw / 2, s.y + R + 20];
-      if (s.selected || !hit(box)) { s.label = true; boxes.push(box); }
+      if (s.selected || !hit(box)) { s.label = true; boxes.push(box); labels++; }
     }
     const inView = pts.filter((t) => t.inView).length;
     const shownInView = shown.filter((t) => t.inView).length;
@@ -758,7 +762,7 @@
   // ---------- Заставка ----------
   const startedAt = Date.now();
   function hideSplash() {
-    const wait = Math.max(0, 1500 - (Date.now() - startedAt));
+    const wait = Math.max(0, 700 - (Date.now() - startedAt)); // заставка не дольше, чем нужно
     setTimeout(() => {
       const s = $('#splash');
       s.classList.add('hide');
