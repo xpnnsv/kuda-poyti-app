@@ -546,6 +546,7 @@
           <div class="place-cat">${p.kind === 'food_court' ? 'Фудкорт' : p.kind === 'mall' ? 'Торговый центр' : c.label}</div>
           <h2>${esc(p.name)}</h2>
           ${p.fullName ? `<div class="place-full">${esc(p.fullName)}</div>` : ''}
+          ${p.note ? `<div class="place-full">${esc(p.note)}</div>` : ''}
         </div>
         <button class="icon-btn" data-action="close" aria-label="Закрыть">✕</button>
       </div>
