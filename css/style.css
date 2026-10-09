@@ -679,3 +679,6 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Полное официальное название из Яндекса под коротким */
+.place-full { margin-top: 2px; color: var(--hint); font-size: 12px; font-weight: 600; line-height: 1.3; }
