@@ -5,12 +5,15 @@
   const supports = (v) => inTelegram && typeof tg.isVersionAtLeast === 'function' && tg.isVersionAtLeast(v);
 
   const CATS = {
-    coffee: { label: 'Кофе и чай', emoji: '☕' },
-    food: { label: 'Еда', emoji: '🍽️' },
-    museum: { label: 'Музеи', emoji: '🏛️' },
-    photo: { label: 'Красивые места', emoji: '📸' },
-    mall: { label: 'ТЦ и фудкорты', emoji: '🛍️' },
+    coffee: { label: 'Кофе и чай' },
+    food: { label: 'Еда' },
+    museum: { label: 'Музеи' },
+    photo: { label: 'Красивые места' },
+    mall: { label: 'ТЦ и фудкорты' },
   };
+  // Иконка из набора в app.html (<symbol id="i-…">)
+  const icon = (name, cls) => `<svg class="ic${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+  const catLabel = (p) => (p.kind === 'food_court' ? 'Фудкорт' : p.kind === 'mall' ? 'Торговый центр' : CATS[p.cat].label);
   // Сколько названий показывать в списках «Где поесть» / «Развлечения»
   const LIST_LIMIT = 12;
   const BUDGETS = [
@@ -22,10 +25,10 @@
   ];
   const SETTINGS = [
     { v: 'any', label: 'Неважно' },
-    { v: 'outdoor', label: '🌳 На улице' },
-    { v: 'indoor', label: '🏠 В помещении' },
+    { v: 'outdoor', label: 'На улице' },
+    { v: 'indoor', label: 'В помещении' },
   ];
-  const SETTING_TEXT = { outdoor: '🌳 На улице', indoor: '🏠 В помещении', both: '🌳 Улица и помещение' };
+  const SETTING_TEXT = { outdoor: 'На улице', indoor: 'В помещении', both: 'Улица и помещение' };
 
   const state = {
     cat: 'all',
@@ -37,11 +40,17 @@
     selected: null,
     lucky: false,
     recent: [],
+    collection: null, // открытая подборка из collections.js
   };
 
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const curated = (window.CURATED_PLACES || []).map((p) => Object.assign({ source: 'curated' }, p));
+  const byId = new Map(curated.map((p) => [p.id, p]));
+  // Подборки: только места, которые есть на карте
+  const COLLECTIONS = (window.COLLECTIONS || []).map((c) => Object.assign({}, c, {
+    set: new Set(c.ids.filter((id) => byId.has(id))),
+  }));
 
   // ---------- Утилиты ----------
   function distance(a, b) {
@@ -107,6 +116,54 @@
     toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
   }
 
+  // ---------- Избранное ----------
+  // Хранится в телефоне, а в Telegram — ещё и в облаке: видно на всех устройствах пользователя
+  const favs = new Set();
+  try { JSON.parse(localStorage.getItem('favs') || '[]').forEach((id) => favs.add(id)); } catch (e) { /* хранилище недоступно */ }
+
+  function saveFavs() {
+    const s = JSON.stringify([...favs].slice(-200)); // облако Telegram хранит до 4096 символов в ключе
+    try { localStorage.setItem('favs', s); } catch (e) { /* хранилище недоступно */ }
+    if (supports('6.9')) tg.CloudStorage.setItem('favs', s);
+  }
+
+  // В Telegram главная копия — облачная (там уже учтены изменения с других устройств)
+  function loadCloudFavs() {
+    if (!supports('6.9')) return;
+    tg.CloudStorage.getItem('favs', (err, value) => {
+      if (err) return;
+      if (!value) { if (favs.size) saveFavs(); return; }
+      let list;
+      try { list = JSON.parse(value); } catch (e) { return; }
+      if (!Array.isArray(list)) return;
+      favs.clear();
+      list.forEach((id) => favs.add(id));
+      try { localStorage.setItem('favs', value); } catch (e) { /* хранилище недоступно */ }
+      updateFavButton();
+      render();
+    });
+  }
+
+  function updateFavButton() {
+    const n = [...favs].filter((id) => byId.has(id)).length;
+    $('#open-favs').classList.toggle('has-favs', n > 0);
+    $('#open-favs use').setAttribute('href', n ? '#i-heart-fill' : '#i-heart');
+    $('#fav-count').textContent = n;
+    $('#fav-count').hidden = !n;
+  }
+
+  function toggleFav(p) {
+    const on = !favs.has(p.id);
+    if (on) favs.add(p.id);
+    else favs.delete(p.id);
+    saveFavs();
+    haptic.impact(on ? 'medium' : 'light');
+    toast(on ? 'Сохранено в избранное' : 'Убрано из избранного');
+    updateFavButton();
+    const el = markerEls.get(p.id);
+    if (el) el.classList.toggle('mk--fav', on);
+  }
+
   // ---------- Тема и Telegram ----------
   // Тема: 'auto' — как в Telegram (или в системе), 'light', 'dark'. Выбор запоминается.
   const THEMES = ['auto', 'light', 'dark'];
@@ -167,7 +224,7 @@
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     if (MapView.impl) MapView.setDark(dark);
     // Шапка и фон Telegram в цветах приложения
-    const bg = dark ? '#1c1618' : '#ffffff';
+    const bg = dark ? '#1b1719' : '#ffffff';
     if (supports('6.9')) {
       tg.setHeaderColor(bg);
       tg.setBackgroundColor(bg);
@@ -192,6 +249,7 @@
 
   // ---------- Фильтрация ----------
   function matches(p) {
+    if (state.collection && !state.collection.set.has(p.id)) return false;
     if (state.cat !== 'all' && p.cat !== state.cat) return false;
     if (state.budget !== null) {
       const m = minPrice(p);
@@ -317,7 +375,7 @@
       el.type = 'button';
       el.className = `mk mk--${p.cat} mk--named` + (p.source === 'live' ? ' mk--small' : '');
       el.setAttribute('aria-label', p.name);
-      el.innerHTML = `<span>${CATS[p.cat].emoji}</span><b class="mk-label">${esc(p.name)}</b>`;
+      el.innerHTML = `${icon(p.cat)}<b class="mk-label">${esc(p.name)}</b>${icon('heart-fill', 'mk-fav')}`;
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         haptic.tap();
@@ -326,6 +384,7 @@
       markerEls.set(p.id, el);
     }
     el.classList.toggle('mk--active', !!state.selected && state.selected.id === p.id);
+    el.classList.toggle('mk--fav', favs.has(p.id));
     return el;
   }
 
@@ -373,12 +432,14 @@
     pts.sort((a, c) => (c.inView - a.inView) || (c.prio - a.prio));
 
     // Порог — только в режиме «Все»: если выбрана категория, показываем её места сразу (без наложений)
-    const minP = state.cat === 'all' ? minPriority(view.zoom) : 0;
+    const minP = state.cat === 'all' && !state.collection ? minPriority(view.zoom) : 0;
+    // В подборке мест немного — показываем их все, даже если метки накладываются (например, башни Сити)
+    const gap = state.collection ? 0 : GAP;
     const shown = [];
     for (const t of pts) {
       if (t.prio < minP && t.p.source !== 'live') continue; // найденное через «Найти здесь» показываем всегда
       if (!t.selected && shown.length >= MAX_MARKERS) continue;
-      if (!t.selected && shown.some((s) => Math.abs(s.x - t.x) < GAP && Math.abs(s.y - t.y) < GAP)) continue;
+      if (!t.selected && shown.some((s) => Math.abs(s.x - t.x) < gap && Math.abs(s.y - t.y) < gap)) continue;
       shown.push(t);
     }
 
@@ -418,6 +479,7 @@
     const pill = $('#pill');
     pill.classList.toggle('pill--warn', total === 0);
     if (total === 0) pill.textContent = 'Ничего не нашлось — попробуй смягчить фильтры';
+    else if (state.collection && inView < total) pill.textContent = `Здесь ${inView} из ${total} · отдали карту, чтобы увидеть все`;
     else if (shownInView < inView) pill.textContent = `${shownInView} из ${inView} · приблизь — покажу больше`;
     else pill.textContent = `${inView} ${plural(inView, 'место', 'места', 'мест')} здесь`;
   }
@@ -454,6 +516,7 @@
     });
     $('#backdrop').classList.remove('show');
     document.body.classList.remove('sheet-open');
+    $('#search-input').blur();
     if (openSheetName === 'place') {
       state.selected = null;
       state.lucky = false;
@@ -489,9 +552,9 @@
   // ---------- Карточка места ----------
   function infoHtml(p, todayHours, site) {
     const rows = [];
-    if (p.address) rows.push(`<li><span>📍</span>${esc(p.address)}</li>`);
-    if (todayHours) rows.push(`<li><span>🕒</span>Сегодня: ${todayHours}</li>`);
-    if (site) rows.push(`<li><span>🌐</span><a href="#" data-action="site" data-url="${esc(site)}">Сайт места</a></li>`);
+    if (p.address) rows.push(`<li>${icon('pin')}<span>${esc(p.address)}</span></li>`);
+    if (todayHours) rows.push(`<li>${icon('clock')}<span>Сегодня: ${todayHours}</span></li>`);
+    if (site) rows.push(`<li>${icon('globe')}<a href="#" data-action="site" data-url="${esc(site)}">Сайт места</a></li>`);
     return rows.length ? `<ul class="place-info">${rows.join('')}</ul>` : '';
   }
 
@@ -522,17 +585,21 @@
     const eat = p.eat || [], cuisine = p.cuisine || [];
     const fun = (p.fun || []).map(([name, label]) => (label ? `${name} · ${label}` : name));
     if (p.kind === 'food_court') {
-      return listHtml('🍜 Кухни', cuisine) + listHtml('🍽️ Места внутри', eat) + listHtml('🎡 Развлечения', fun);
+      return listHtml('Кухни', cuisine) + listHtml('Места внутри', eat) + listHtml('Развлечения', fun);
     }
     if (p.kind === 'mall') {
       if (!eat.length && !fun.length) return '<p class="place-note">Что внутри — смотри в карточке Яндекс Карт ниже.</p>';
-      return listHtml('🎡 Развлечения', fun) + listHtml('🍽️ Где поесть', eat);
+      return listHtml('Развлечения', fun) + listHtml('Где поесть', eat);
     }
-    return listHtml('🍜 Кухня', cuisine);
+    return listHtml('Кухня', cuisine);
+  }
+
+  function favButtonHtml(p) {
+    const on = favs.has(p.id);
+    return `<button class="icon-btn${on ? ' is-fav' : ''}" data-action="fav" aria-pressed="${on}" aria-label="${on ? 'Убрать из избранного' : 'В избранное'}">${icon(on ? 'heart-fill' : 'heart')}</button>`;
   }
 
   function placeHtml(p) {
-    const c = CATS[p.cat];
     const st = Hours.status(p.hours);
     const todayHours = Hours.today(p.hours);
     const d = state.user ? distance(state.user, p) : null;
@@ -541,20 +608,22 @@
       <div class="sheet-handle"></div>
       ${photoHtml(p)}
       <div class="place-head">
-        <div class="place-icon place-icon--${p.cat}">${c.emoji}</div>
         <div class="place-title">
-          <div class="place-cat">${p.kind === 'food_court' ? 'Фудкорт' : p.kind === 'mall' ? 'Торговый центр' : c.label}</div>
+          <div class="place-cat cat--${p.cat}">${icon(p.cat)}${catLabel(p)}</div>
           <h2>${esc(p.name)}</h2>
           ${p.fullName ? `<div class="place-full">${esc(p.fullName)}</div>` : ''}
           ${p.note ? `<div class="place-full">${esc(p.note)}</div>` : ''}
         </div>
-        <button class="icon-btn" data-action="close" aria-label="Закрыть">✕</button>
+        <div class="head-actions">
+          ${p.source === 'live' ? '' : `<button class="icon-btn" data-action="share" aria-label="Позвать друга">${icon('share')}</button>${favButtonHtml(p)}`}
+          <button class="icon-btn" data-action="close" aria-label="Закрыть">${icon('close')}</button>
+        </div>
       </div>
       <div class="tags">
         <span class="tag tag--${st.state}">${st.text}</span>
         <span class="tag">${priceText(p)}</span>
         <span class="tag">${SETTING_TEXT[p.setting] || ''}</span>
-        ${d !== null ? `<span class="tag">🚶 ${distanceText(d)}</span>` : ''}
+        ${d !== null ? `<span class="tag">${distanceText(d)}</span>` : ''}
       </div>
       ${p.desc ? `<p class="place-desc">${esc(p.desc)}</p>` : ''}
       ${insideHtml(p)}
@@ -566,7 +635,7 @@
       </button>
       <div class="place-actions">
         <button class="btn btn-primary" data-action="route">Проложить маршрут</button>
-        ${state.lucky ? '<button class="btn btn-secondary" data-action="again">🎲 Ещё вариант</button>' : ''}
+        ${state.lucky ? `<button class="btn btn-secondary" data-action="again">${icon('dice')} Ещё вариант</button>` : ''}
       </div>`;
   }
 
@@ -580,7 +649,7 @@
 
     // Сдвигаем карту так, чтобы место было видно над карточкой
     const current = state.view ? state.view.zoom : cfg.START_ZOOM;
-    const zoom = opts.lucky ? Math.max(current, 15) : current;
+    const zoom = opts.lucky || opts.focus ? Math.max(current, 15) : current;
     const degPerPx = (1.40625 * Math.cos((p.lat * Math.PI) / 180)) / Math.pow(2, zoom);
     MapView.flyTo(p.lat - window.innerHeight * 0.2 * degPerPx, p.lon, zoom);
   }
@@ -634,6 +703,165 @@
     openPlace(pick, { lucky: true });
   }
 
+  // ---------- Списки мест (поиск, избранное) ----------
+  const norm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е');
+
+  // Подсвечивает найденное слово в названии
+  function highlight(name, q) {
+    const w = norm(q).trim().split(/\s+/)[0];
+    const i = w ? norm(name).indexOf(w) : -1;
+    if (i < 0) return esc(name);
+    return esc(name.slice(0, i)) + '<mark>' + esc(name.slice(i, i + w.length)) + '</mark>' + esc(name.slice(i + w.length));
+  }
+
+  // note — почему место нашлось, если не по названию («Кухня: грузинская», «Внутри: Шоколадница»)
+  function rowHtml(p, q, note) {
+    const st = Hours.status(p.hours).state;
+    const sub = note || p.address;
+    return `<button class="row" type="button" data-id="${esc(p.id)}">
+      <span class="row-icon cat--${p.cat}">${icon(p.cat)}</span>
+      <span class="row-text"><b>${q ? highlight(p.name, q) : esc(p.name)}</b><small>${esc(catLabel(p))}${sub ? ' · ' + esc(sub) : ''}</small></span>
+      ${st === 'unknown' ? '' : `<span class="row-state row-state--${st}">${st === 'open' ? 'Открыто' : 'Закрыто'}</span>`}
+    </button>`;
+  }
+
+  const collTileHtml = (c) => `<button class="coll" type="button" data-coll="${c.id}">
+      <span class="coll-emoji">${c.emoji}</span><b>${esc(c.title)}</b><small>${c.set.size} ${plural(c.set.size, 'место', 'места', 'мест')}</small>
+    </button>`;
+
+  // ---------- Поиск ----------
+  // Сначала ищем в названии, потом в кухнях, заведениях внутри ТЦ, адресе и описании
+  const searchIndex = curated.map((p) => ({
+    p,
+    name: norm(p.name + ' ' + (p.fullName || '')),
+    rest: norm([(p.cuisine || []).join(' '), (p.eat || []).join(' '), (p.fun || []).map((f) => f[0]).join(' '),
+      p.address, catLabel(p), p.desc].join(' ')),
+  }));
+
+  function search(q) {
+    const words = norm(q).split(/[\s,.«»"]+/).filter(Boolean);
+    if (!words.length) return [];
+    const res = [];
+    for (const it of searchIndex) {
+      let score = 0;
+      for (const w of words) {
+        const s = it.name.startsWith(w) ? 30 : it.name.includes(' ' + w) ? 20 : it.name.includes(w) ? 12 : it.rest.includes(w) ? 4 : 0;
+        if (!s) { score = 0; break; }
+        score += s;
+      }
+      if (score) res.push({ p: it.p, note: it.name.includes(words[0]) ? null : matchNote(it.p, words[0]), score: score + Math.log10((it.p.pop || 0) + 1) });
+    }
+    return res.sort((a, b) => b.score - a.score).slice(0, 40);
+  }
+
+  function matchNote(p, w) {
+    const hit = (arr) => (arr || []).find((x) => norm(x).includes(w));
+    let h;
+    if ((h = hit(p.cuisine))) return 'Кухня: ' + h;
+    if ((h = hit(p.eat) || hit((p.fun || []).map((f) => f[0])))) return 'Внутри: ' + h;
+    return null;
+  }
+
+  function renderSearch() {
+    const q = $('#search-input').value.trim();
+    $('#search-clear').hidden = !q;
+    const body = $('#search-body');
+    if (!q) {
+      body.innerHTML = `<div class="section-title">Подборки</div><div class="colls">${COLLECTIONS.map(collTileHtml).join('')}</div>`;
+      return;
+    }
+    const colls = COLLECTIONS.filter((c) => norm(c.title).includes(norm(q)));
+    const found = search(q);
+    body.innerHTML =
+      (colls.length ? `<div class="colls">${colls.map(collTileHtml).join('')}</div>` : '') +
+      (found.length
+        ? `<div class="section-title">Места <small>${found.length}</small></div><div class="rows">${found.map((r) => rowHtml(r.p, q, r.note)).join('')}</div>`
+        : colls.length ? '' : '<p class="empty">Ничего не нашлось. Попробуй название места, кухню или улицу.</p>');
+  }
+
+  function openSearch() {
+    haptic.tap();
+    renderSearch();
+    openSheet('search');
+    $('#search-input').focus({ preventScroll: true }); // в том же нажатии — иначе iPhone не покажет клавиатуру
+  }
+
+  // ---------- Избранное: список ----------
+  function renderFavs() {
+    const list = [...favs].reverse().map((id) => byId.get(id)).filter(Boolean);
+    $('#favs-sheet').innerHTML = '<div class="sheet-handle"></div><h2 class="sheet-title">Избранное</h2>' +
+      (list.length
+        ? `<div class="rows">${list.map((p) => rowHtml(p)).join('')}</div>`
+        : '<p class="empty">Здесь будут места, которые ты сохранишь. Открой любое место на карте и нажми на сердечко.</p>');
+  }
+
+  // ---------- Подборки ----------
+  function openCollection(id) {
+    const c = COLLECTIONS.find((x) => x.id === id);
+    if (!c) return;
+    haptic.tap();
+    state.collection = c;
+    state.cat = 'all';
+    syncChips();
+    closeSheets();
+    $('#chips').hidden = true;
+    $('#coll-bar').hidden = false;
+    $('#coll-title').textContent = `${c.emoji} ${c.title} · ${c.set.size} ${plural(c.set.size, 'место', 'места', 'мест')}`;
+    render();
+    syncFilters();
+    fitPlaces([...c.set].map((pid) => byId.get(pid)));
+  }
+
+  function closeCollection() {
+    haptic.tap();
+    state.collection = null;
+    $('#chips').hidden = false;
+    $('#coll-bar').hidden = true;
+    render();
+    syncFilters();
+  }
+
+  // Показать все места на экране целиком (с полями под верхнюю панель)
+  function fitPlaces(list) {
+    if (!list.length) return;
+    let s = 90, n = -90, w = 180, e = -180;
+    for (const p of list) {
+      s = Math.min(s, p.lat); n = Math.max(n, p.lat);
+      w = Math.min(w, p.lon); e = Math.max(e, p.lon);
+    }
+    const el = $('#map');
+    const W = el.clientWidth - 60, H = el.clientHeight - 220;
+    const zx = Math.log2((W * 360) / (256 * Math.max(e - w, 0.002)));
+    const zy = Math.log2((H * 2 * Math.PI) / (256 * Math.max(merc(n) - merc(s), 0.00005)));
+    const zoom = Math.max(cfg.MIN_ZOOM || 9, Math.min(15, zx, zy));
+    // Центр чуть выше середины мест: верх карты закрыт поиском и чипсами
+    const cy = (merc(n) + merc(s)) / 2 + (70 * 2 * Math.PI) / (256 * Math.pow(2, zoom));
+    MapView.flyTo((Math.atan(Math.exp(cy)) * 360) / Math.PI - 90, (w + e) / 2, zoom);
+  }
+
+  // ---------- Позвать друга ----------
+  // Ссылка открывает мини-апп сразу на этом месте (нужно «Main Mini App» в @BotFather)
+  function sharePlace(p) {
+    const link = `https://t.me/${cfg.BOT_USERNAME}?startapp=p-${p.id}`;
+    const text = `Пойдём сюда? ${p.name}${p.address ? ', ' + p.address : ''}`;
+    haptic.impact();
+    if (inTelegram) {
+      tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
+    } else if (navigator.share) {
+      navigator.share({ title: p.name, text, url: link }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(link).then(() => toast('Ссылка скопирована'), () => toast(link));
+    } else {
+      toast(link);
+    }
+  }
+
+  // Параметр из ссылки t.me/<бот>?startapp=… : «p-<id>» — открыть место, «lucky» — «Мне повезёт»
+  function startParam() {
+    const qs = new URLSearchParams(location.search);
+    return (inTelegram && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || qs.get('tgWebAppStartParam') || qs.get('startapp') || '';
+  }
+
   // ---------- Геолокация ----------
   function browserPosition() {
     return new Promise((resolve, reject) => {
@@ -683,12 +911,10 @@
 
   // ---------- Чипсы категорий и фильтры ----------
   function buildChips() {
-    const list = [{ id: 'all', label: 'Все', emoji: '✨' }].concat(
-      Object.keys(CATS).map((id) => ({ id, label: CATS[id].label, emoji: CATS[id].emoji }))
-    );
+    const list = [{ id: 'all', label: 'Все' }].concat(Object.keys(CATS).map((id) => ({ id, label: CATS[id].label })));
     const box = $('#chips');
     box.innerHTML = list.map((c) =>
-      `<button type="button" class="chip" data-cat="${c.id}"><span>${c.emoji}</span>${c.label}</button>`
+      `<button type="button" class="chip cat--${c.id}" data-cat="${c.id}">${icon(c.id)}${c.label}</button>`
     ).join('');
     box.addEventListener('click', (e) => {
       const b = e.target.closest('.chip');
@@ -792,8 +1018,30 @@
     $('#locate').addEventListener('click', locate);
     $('#theme').addEventListener('click', cycleTheme);
     $('#search-here').addEventListener('click', liveSearch);
+    $('#open-search').addEventListener('click', openSearch);
+    $('#search-input').addEventListener('input', renderSearch);
+    $('#search-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
+    $('#search-clear').addEventListener('click', () => {
+      $('#search-input').value = '';
+      renderSearch();
+      $('#search-input').focus();
+    });
+    $('#open-favs').addEventListener('click', () => { haptic.tap(); renderFavs(); openSheet('favs'); });
+    $('#coll-close').addEventListener('click', closeCollection);
+    // Строки мест и плитки подборок в поиске и избранном
+    for (const sel of ['#search-body', '#favs-sheet']) {
+      $(sel).addEventListener('click', (e) => {
+        const coll = e.target.closest('[data-coll]');
+        if (coll) return openCollection(coll.dataset.coll);
+        const row = e.target.closest('[data-id]');
+        const p = row && byId.get(row.dataset.id);
+        if (p) { haptic.tap(); openPlace(p, { focus: true }); }
+      });
+    }
     updateThemeButton();
+    updateFavButton();
     loadCloudTheme();
+    loadCloudFavs();
     $('#backdrop').addEventListener('click', () => closeSheets());
     $('#splash-retry').addEventListener('click', () => location.reload());
     $('#place-sheet').addEventListener('click', (e) => {
@@ -803,6 +1051,8 @@
       const p = state.selected;
       if (a.dataset.action === 'close') closeSheets();
       else if (a.dataset.action === 'again') lucky();
+      else if (a.dataset.action === 'fav' && p) { toggleFav(p); a.outerHTML = favButtonHtml(p); }
+      else if (a.dataset.action === 'share' && p) sharePlace(p);
       else if (a.dataset.action === 'route' && p) { haptic.impact(); openLink(routeUrl(p)); }
       else if (a.dataset.action === 'site') openLink(a.dataset.url);
       else if (a.dataset.action === 'yandex' && p) { haptic.impact(); openLink(yandexPlaceUrl(p)); }
@@ -828,8 +1078,12 @@
     onMove(MapView.view());
     render();
     hideSplash();
+    // Ссылка от друга (startapp=p-<id>) — сразу открываем это место.
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
-    if (new URLSearchParams(location.search).get('lucky') === '1') setTimeout(lucky, 1700);
+    const sp = startParam();
+    const shared = sp.startsWith('p-') && byId.get(sp.slice(2));
+    if (shared) setTimeout(() => openPlace(shared, { focus: true }), 900);
+    else if (sp === 'lucky' || new URLSearchParams(location.search).get('lucky') === '1') setTimeout(lucky, 1700);
   }
 
   main();

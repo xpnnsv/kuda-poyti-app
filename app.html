@@ -9,7 +9,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <!-- Версия файлов: tools/publish.ps1 подставляет сюда время публикации -->
-  <script>window.APP_VERSION = '202610091349';</script>
+  <script>window.APP_VERSION = '202610101610';</script>
   <!-- Заранее открываем соединения с серверами карты, шрифтов и Telegram — быстрее запуск -->
   <link rel="preconnect" href="https://api-maps.yandex.ru" crossorigin>
   <link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin>
@@ -17,13 +17,37 @@
   <link rel="preconnect" href="https://telegram.org">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap">
+  <!-- Шрифт грузится, не задерживая показ приложения: до его загрузки — системный -->
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'">
   <title>Куда пойти</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4C20.4 4 11 13 11 24.3 11 39.5 32 60 32 60s21-20.5 21-35.7C53 13 43.6 4 32 4z' fill='%23ff4059'/%3E%3Ccircle cx='32' cy='24' r='8' fill='%23fff'/%3E%3C/svg%3E">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=202610091349">
+  <link rel="stylesheet" href="css/style.css?v=202610101610">
 </head>
 <body>
+  <!-- Иконки: один набор на всё приложение (метки, кнопки, карточки) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-all" viewBox="0 0 24 24"><path d="M12 3.5l1.9 5.2 5.6.3-4.4 3.5 1.5 5.4L12 14.8l-4.6 3.1 1.5-5.4L4.5 9l5.6-.3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-coffee" viewBox="0 0 24 24"><path d="M4.5 9.5h12v4.5a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5zM16.5 11h1.2a2.3 2.3 0 0 1 0 4.6h-1.6M8.5 3.5v2.5M12.5 3.5v2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-food" viewBox="0 0 24 24"><path d="M6.5 3.5v6a2.5 2.5 0 0 0 5 0v-6M9 3.5v17M16.5 20.5v-17c-2 1.2-3 3.6-3 7v3h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-museum" viewBox="0 0 24 24"><path d="M3.5 9L12 4l8.5 5zM5.5 9.5v8M10 9.5v8M14 9.5v8M18.5 9.5v8M3.5 20h17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-photo" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.3l1.4-2.2h5.6L16.2 7h2.3A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12.8" r="3.3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+      <symbol id="i-mall" viewBox="0 0 24 24"><path d="M5.5 8h13l-1 12h-11zM9 10V7a3 3 0 0 1 6 0v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-heart-fill" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 14.5V4M8 7.5l4-4 4 4M7 11H5.5v9h13v-9H17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.5 5.2 3.5 8.5s-1.1 6.1-3.5 8.5c-2.4-2.4-3.5-5.2-3.5-8.5s1.1-6.1 3.5-8.5z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+      <symbol id="i-filters" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="15" cy="7" r="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="9" cy="12" r="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="17" cy="17" r="2" stroke="currentColor" stroke-width="2" fill="none"/></symbol>
+      <symbol id="i-dice" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="9" r="1.4" fill="currentColor"/><circle cx="15" cy="15" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="15" cy="9" r="1.4" fill="currentColor"/><circle cx="9" cy="15" r="1.4" fill="currentColor"/></symbol>
+      <symbol id="i-locate" viewBox="0 0 24 24"><path d="M20 4L4 11l6.5 2.5L13 20z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
+
   <!-- Заставка -->
   <div id="splash" role="status" aria-live="polite">
     <div class="splash-inner">
@@ -43,28 +67,42 @@
 
   <div id="map"></div>
 
-  <!-- Верхняя панель: категории -->
+  <!-- Верхняя панель: поиск, избранное, категории -->
   <header class="topbar">
+    <div class="searchbar">
+      <button id="open-search" class="search-field" type="button">
+        <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+        <span>Место, кухня или подборка</span>
+      </button>
+      <button id="open-favs" class="search-fav" type="button" aria-label="Избранное">
+        <svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg>
+        <span id="fav-count" class="fav-count" hidden>0</span>
+      </button>
+    </div>
     <nav id="chips" class="chips" aria-label="Категории"></nav>
+    <div id="coll-bar" class="coll-bar" hidden>
+      <span id="coll-title"></span>
+      <button id="coll-close" type="button" aria-label="Выйти из подборки"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button>
+    </div>
     <div id="pill" class="pill">Загружаю…</div>
-    <button id="search-here" class="search-here" type="button" hidden>🔎 Найти здесь</button>
+    <button id="search-here" class="search-here" type="button" hidden>Найти здесь</button>
   </header>
 
   <button id="theme" class="fab fab--theme" type="button" aria-label="Тема оформления"></button>
 
   <button id="locate" class="fab" type="button" aria-label="Где я">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2l-8.5 19.5L12 17l8.5 4.5z" fill="currentColor" transform="rotate(45 12 12)"/></svg>
+    <svg class="ic" aria-hidden="true"><use href="#i-locate"/></svg>
   </button>
 
   <!-- Нижняя панель -->
   <div class="bottom-bar">
     <button id="open-filters" class="btn btn-surface" type="button">
-      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="16" cy="6" r="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="10" cy="12" r="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="18" cy="18" r="2" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+      <svg class="ic" aria-hidden="true"><use href="#i-filters"/></svg>
       Фильтры
       <span id="filter-badge" class="badge" hidden>0</span>
     </button>
     <button id="lucky" class="btn btn-primary btn-lucky" type="button">
-      <span class="dice">🎲</span> Мне повезёт
+      <svg class="ic dice" aria-hidden="true"><use href="#i-dice"/></svg> Мне повезёт
     </button>
   </div>
 
@@ -101,16 +139,31 @@
     <p class="f-note">Все места, адреса и часы работы сверены с Яндекс Картами. Цены — примерный средний чек.</p>
   </section>
 
+  <!-- Поиск и подборки -->
+  <section id="search-sheet" class="sheet sheet--tall" aria-label="Поиск">
+    <div class="sheet-handle"></div>
+    <div class="search-input">
+      <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="search-input" type="search" placeholder="Например, «Зарядье» или «грузинская»" autocomplete="off" enterkeyhint="search">
+      <button id="search-clear" class="search-clear" type="button" aria-label="Стереть" hidden><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button>
+    </div>
+    <div id="search-body"></div>
+  </section>
+
+  <!-- Избранное -->
+  <section id="favs-sheet" class="sheet sheet--tall" aria-label="Избранное"></section>
+
   <!-- Карточка места -->
   <section id="place-sheet" class="sheet" aria-label="Место"></section>
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/config.js?v=202610091349"></script>
-  <script src="js/places.js?v=202610091349"></script>
-  <script src="js/photos.js?v=202610091349"></script>
-  <script src="js/hours.js?v=202610091349"></script>
-  <script src="js/map.js?v=202610091349"></script>
-  <script src="js/app.js?v=202610091349"></script>
+  <script src="js/config.js?v=202610101610"></script>
+  <script src="js/places.js?v=202610101610"></script>
+  <script src="js/collections.js?v=202610101610"></script>
+  <script src="js/photos.js?v=202610101610"></script>
+  <script src="js/hours.js?v=202610101610"></script>
+  <script src="js/map.js?v=202610101610"></script>
+  <script src="js/app.js?v=202610101610"></script>
 </body>
 </html>

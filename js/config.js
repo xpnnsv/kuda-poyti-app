@@ -7,6 +7,9 @@ window.APP_CONFIG = {
 
   APP_NAME: 'Куда пойти',
 
+  // Имя бота (без @) — для ссылок «Позвать друга»: t.me/<бот>?startapp=…
+  BOT_USERNAME: 'KudaShodim_bot',
+
   // Откуда карта стартует: [широта, долгота] и масштаб
   START_CENTER: [55.7539, 37.6208],
   START_ZOOM: 12,
