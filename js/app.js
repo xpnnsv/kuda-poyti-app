@@ -72,6 +72,7 @@
   function priceText(p) {
     if (p.bill) return `Средний чек ${p.bill}`;
     if (p.tickets) return `Билет ${p.tickets}`;
+    if (p.cup) return `Капучино ${p.cup}`;
     if (p.kind === 'mall') return 'Вход свободный';
     if (p.free) return 'Бесплатно';
     if (p.metro) return 'Вход по билету на метро';
@@ -82,7 +83,7 @@
   // null — цена неизвестна, такое место при включённом фильтре бюджета не показываем.
   function minPrice(p) {
     if (p.free || p.kind === 'mall') return 0;
-    const s = p.bill || p.tickets;
+    const s = p.bill || p.tickets || p.cup;
     if (s) {
       const n = parseInt(s.replace(/\s/g, '').match(/\d+/), 10);
       return Number.isFinite(n) ? n : null;
@@ -552,7 +553,7 @@
   // ---------- Карточка места ----------
   function infoHtml(p, todayHours, site) {
     const rows = [];
-    if (p.address) rows.push(`<li>${icon('pin')}<span>${esc(p.address)}</span></li>`);
+    if (p.address) rows.push(`<li>${icon('pin')}<span>${esc(p.address)}${p.district ? `<small class="place-district">${esc(p.district)}</small>` : ''}</span></li>`);
     if (todayHours) rows.push(`<li>${icon('clock')}<span>Сегодня: ${todayHours}</span></li>`);
     if (site) rows.push(`<li>${icon('globe')}<a href="#" data-action="site" data-url="${esc(site)}">Сайт места</a></li>`);
     return rows.length ? `<ul class="place-info">${rows.join('')}</ul>` : '';
@@ -735,7 +736,7 @@
     p,
     name: norm(p.name + ' ' + (p.fullName || '')),
     rest: norm([(p.cuisine || []).join(' '), (p.eat || []).join(' '), (p.fun || []).map((f) => f[0]).join(' '),
-      p.address, catLabel(p), p.desc].join(' ')),
+      p.address, p.district, catLabel(p), p.desc].join(' ')),
   }));
 
   function search(q) {
@@ -759,6 +760,7 @@
     let h;
     if ((h = hit(p.cuisine))) return 'Кухня: ' + h;
     if ((h = hit(p.eat) || hit((p.fun || []).map((f) => f[0])))) return 'Внутри: ' + h;
+    if (p.district && norm(p.district).includes(w)) return p.district;
     return null;
   }
 

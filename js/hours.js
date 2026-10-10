@@ -71,7 +71,15 @@
   }
 
   let formatter = null;
-  function moscowNow(date = new Date()) {
+  // Текущее московское время пересчитываем не чаще раза в 20 секунд: при тысячах мест на карте
+  // это заметно ускоряет фильтр «Открыто сейчас»
+  let nowCache = null, nowCacheAt = 0;
+  function moscowNow(date) {
+    if (!date) {
+      const t = Date.now();
+      if (!nowCache || t - nowCacheAt > 20000) { nowCache = moscowNow(new Date(t)); nowCacheAt = t; }
+      return nowCache;
+    }
     formatter = formatter || new Intl.DateTimeFormat('en-US', {
       timeZone: 'Europe/Moscow', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
     });
