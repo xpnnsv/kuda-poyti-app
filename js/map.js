@@ -108,6 +108,11 @@
     setDark(dark) {
       try { this.map.update({ theme: dark ? 'dark' : 'light' }); } catch (e) { /* старые версии API */ }
     },
+
+    setMinZoom(z) {
+      this.map.update({ zoomRange: { min: z, max: 21 } });
+      if (this.map.zoom < z) this.map.update({ location: { center: this.map.center, zoom: z } });
+    },
   };
 
   // ---------- OpenStreetMap (Leaflet) ----------
@@ -172,6 +177,8 @@
     },
 
     setDark() { /* тема переключается через CSS */ },
+
+    setMinZoom(z) { this.map.options.zoomSnap = 0; this.map.setMinZoom(z); },
   };
 
   // ---------- Общий интерфейс ----------
@@ -203,5 +210,6 @@
     flyTo(lat, lon, zoom) { this.impl.flyTo(lat, lon, zoom); },
     setUser(lat, lon, el) { this.impl.setUser(lat, lon, el); },
     setDark(dark) { this.impl.setDark(dark); },
+    setMinZoom(z) { this.impl.setMinZoom(z); },
   };
 })();

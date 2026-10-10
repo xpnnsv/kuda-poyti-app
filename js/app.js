@@ -933,10 +933,20 @@
     const W = el.clientWidth - 60, H = el.clientHeight - 220;
     const zx = Math.log2((W * 360) / (256 * Math.max(e - w, 0.002)));
     const zy = Math.log2((H * 2 * Math.PI) / (256 * Math.max(merc(n) - merc(s), 0.00005)));
-    const zoom = Math.max(cfg.MIN_ZOOM || 9, Math.min(15, zx, zy));
+    const zoom = Math.max(maxViewZoom(), Math.min(15, zx, zy));
     // Центр чуть выше середины мест: верх карты закрыт поиском и чипсами
     const cy = (merc(n) + merc(s)) / 2 + (70 * 2 * Math.PI) / (256 * Math.pow(2, zoom));
     MapView.flyTo((Math.atan(Math.exp(cy)) * 360) / Math.PI - 90, (w + e) / 2, zoom);
+  }
+
+  // Наименьший масштаб (самое сильное отдаление): Москва в МКАД целиком помещается на экран — дальше не отдаляем
+  function maxViewZoom() {
+    const v = cfg.MAX_VIEW, el = $('#map');
+    if (!v) return cfg.MIN_ZOOM || 9;
+    const W = el.clientWidth || window.innerWidth, H = el.clientHeight || window.innerHeight;
+    const zx = Math.log2((W * 360) / (256 * (v.east - v.west)));
+    const zy = Math.log2((H * 2 * Math.PI) / (256 * (merc(v.north) - merc(v.south))));
+    return Math.max(cfg.MIN_ZOOM || 9, Math.round(Math.min(zx, zy) * 100) / 100);
   }
 
   // ---------- Позвать друга ----------
@@ -1173,9 +1183,9 @@
       await MapView.init($('#map'), {
         apiKey: (cfg.YANDEX_MAPS_API_KEY || '').trim(),
         center: cfg.START_CENTER,
-        zoom: cfg.START_ZOOM,
+        zoom: Math.max(cfg.START_ZOOM, maxViewZoom()),
         bounds: cfg.MAP_BOUNDS,
-        minZoom: cfg.MIN_ZOOM,
+        minZoom: maxViewZoom(),
         dark: isDark(),
       });
     } catch (e) {
@@ -1184,6 +1194,12 @@
       return;
     }
     document.body.dataset.map = MapView.provider;
+    // Экран поменял размер (поворот, Telegram развернул окно) — пересчитываем предел отдаления
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { try { MapView.setMinZoom(maxViewZoom()); } catch (e) { /* карта ещё не готова */ } }, 300);
+    });
     MapView.onMove(onMove);
     onMove(MapView.view());
     render();
