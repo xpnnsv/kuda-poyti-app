@@ -9,7 +9,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <!-- Версия файлов: tools/publish.ps1 подставляет сюда время публикации -->
-  <script>window.APP_VERSION = '202610101939';</script>
+  <script>window.APP_VERSION = '202610102214';</script>
   <!-- Заранее открываем соединения с серверами карты, шрифтов и Telegram — быстрее запуск -->
   <link rel="preconnect" href="https://api-maps.yandex.ru" crossorigin>
   <link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin>
@@ -22,7 +22,7 @@
   <title>Куда пойти</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4C20.4 4 11 13 11 24.3 11 39.5 32 60 32 60s21-20.5 21-35.7C53 13 43.6 4 32 4z' fill='%23ff4059'/%3E%3Ccircle cx='32' cy='24' r='8' fill='%23fff'/%3E%3C/svg%3E">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=202610101939">
+  <link rel="stylesheet" href="css/style.css?v=202610102214">
 </head>
 <body>
   <!-- Иконки: один набор на всё приложение (метки, кнопки, карточки) -->
@@ -96,10 +96,13 @@
 
   <!-- Нижняя панель -->
   <div class="bottom-bar">
-    <button id="open-filters" class="btn btn-surface" type="button">
+    <button id="open-filters" class="btn btn-surface btn-square" type="button" aria-label="Фильтры">
       <svg class="ic" aria-hidden="true"><use href="#i-filters"/></svg>
-      Фильтры
-      <span id="filter-badge" class="badge" hidden>0</span>
+      <span id="filter-badge" class="badge badge--corner" hidden>0</span>
+    </button>
+    <button id="open-near" class="btn btn-surface" type="button">
+      <svg class="ic" aria-hidden="true"><use href="#i-locate"/></svg>
+      Рядом
     </button>
     <button id="lucky" class="btn btn-primary btn-lucky" type="button">
       <svg class="ic dice" aria-hidden="true"><use href="#i-dice"/></svg> Мне повезёт
@@ -153,18 +156,26 @@
   <!-- Избранное -->
   <section id="favs-sheet" class="sheet sheet--tall" aria-label="Избранное"></section>
 
+  <!-- Рядом со мной -->
+  <section id="near-sheet" class="sheet sheet--tall" aria-label="Рядом">
+    <div class="sheet-handle"></div>
+    <h2 class="sheet-title">Рядом с тобой</h2>
+    <div id="near-tabs" class="seg near-tabs"></div>
+    <p id="near-note" class="near-note"></p>
+    <div id="near-list" class="rows"></div>
+  </section>
+
   <!-- Карточка места -->
   <section id="place-sheet" class="sheet" aria-label="Место"></section>
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/config.js?v=202610101939"></script>
-  <script src="js/places.js?v=202610101939"></script>
-  <script src="js/places-districts.js?v=202610101939"></script>
-  <script src="js/collections.js?v=202610101939"></script>
-  <script src="js/photos.js?v=202610101939"></script>
-  <script src="js/hours.js?v=202610101939"></script>
-  <script src="js/map.js?v=202610101939"></script>
-  <script src="js/app.js?v=202610101939"></script>
+  <script src="js/config.js?v=202610102214"></script>
+  <script src="js/places.js?v=202610102214"></script>
+  <script src="js/collections.js?v=202610102214"></script>
+  <script src="js/photos.js?v=202610102214"></script>
+  <script src="js/hours.js?v=202610102214"></script>
+  <script src="js/map.js?v=202610102214"></script>
+  <script src="js/app.js?v=202610102214"></script>
 </body>
 </html>

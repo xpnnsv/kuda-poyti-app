@@ -92,6 +92,12 @@
     return null;
   }
 
+  // Оценка из Яндекс Карт: «4,8 · 624 оценки»
+  function ratingText(p) {
+    const r = p.rating.toFixed(1).replace('.', ',');
+    return p.pop ? `${r} · ${p.pop.toLocaleString('ru-RU')} ${plural(p.pop, 'оценка', 'оценки', 'оценок')}` : r;
+  }
+
   function distanceText(d) {
     const dist = d < 1000 ? `${Math.round(d / 10) * 10} м` : `${(d / 1000).toFixed(1).replace('.', ',')} км`;
     return d < 5000 ? `${dist} · ${Math.max(1, Math.round(d / 75))} мин пешком` : dist;
@@ -252,6 +258,11 @@
   function matches(p) {
     if (state.collection && !state.collection.set.has(p.id)) return false;
     if (state.cat !== 'all' && p.cat !== state.cat) return false;
+    return passesFilters(p);
+  }
+
+  // Только фильтры из шторки «Фильтры» (без категории и подборки)
+  function passesFilters(p) {
     if (state.budget !== null) {
       const m = minPrice(p);
       if (m === null || m > state.budget) return false;
@@ -631,7 +642,9 @@
       ${infoHtml(p, todayHours, site)}
       <button class="ya-link" data-action="yandex">
         <span class="ya-star">★</span>
-        <span class="ya-text"><b>Оценка, отзывы и фото</b><small>Откроется в Яндекс Картах</small></span>
+        <span class="ya-text">${p.rating
+          ? `<b>${ratingText(p)}</b><small>Отзывы и фото — в Яндекс Картах</small>`
+          : '<b>Оценка, отзывы и фото</b><small>Откроется в Яндекс Картах</small>'}</span>
         <span class="ya-arrow">›</span>
       </button>
       <div class="place-actions">
@@ -721,7 +734,7 @@
     const sub = note || p.address;
     return `<button class="row" type="button" data-id="${esc(p.id)}">
       <span class="row-icon cat--${p.cat}">${icon(p.cat)}</span>
-      <span class="row-text"><b>${q ? highlight(p.name, q) : esc(p.name)}</b><small>${esc(catLabel(p))}${sub ? ' · ' + esc(sub) : ''}</small></span>
+      <span class="row-text"><b>${q ? highlight(p.name, q) : esc(p.name)}</b><small>${p.rating ? `<span class="row-rating">★ ${p.rating.toFixed(1).replace('.', ',')}</span> · ` : ''}${esc(catLabel(p))}${sub ? ' · ' + esc(sub) : ''}</small></span>
       ${st === 'unknown' ? '' : `<span class="row-state row-state--${st}">${st === 'open' ? 'Открыто' : 'Закрыто'}</span>`}
     </button>`;
   }
@@ -732,12 +745,50 @@
 
   // ---------- Поиск ----------
   // Сначала ищем в названии, потом в кухнях, заведениях внутри ТЦ, адресе и описании
-  const searchIndex = curated.map((p) => ({
+  const indexItem = (p) => ({
     p,
     name: norm(p.name + ' ' + (p.fullName || '')),
     rest: norm([(p.cuisine || []).join(' '), (p.eat || []).join(' '), (p.fun || []).map((f) => f[0]).join(' '),
       p.address, p.district, catLabel(p), p.desc].join(' ')),
-  }));
+  });
+  const searchIndex = curated.map(indexItem);
+
+  // ---------- Места по районам (js/places-districts.js) ----------
+  // ~1700 мест грузятся уже после появления карты, чтобы не задерживать запуск
+  const SETTING_CODES = { i: 'indoor', o: 'outdoor', b: 'both' };
+  function loadDistrictPlaces() {
+    return new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = 'js/places-districts.js?v=' + encodeURIComponent(window.APP_VERSION || '');
+      s.onload = () => {
+        const data = window.DISTRICT_PLACES;
+        if (!data) return resolve();
+        const col = {};
+        data.cols.forEach((c, i) => (col[c] = i));
+        for (const r of data.rows) {
+          const v = (k) => r[col[k]];
+          if (byId.has('y' + v('ym'))) continue;
+          const p = {
+            id: 'y' + v('ym'), ym: v('ym'), pop: v('pop'), name: v('name'), cat: v('cat'),
+            setting: SETTING_CODES[v('setting')], hours: v('hours') || null, address: v('address'),
+            district: data.districts[v('district')], lat: v('lat'), lon: v('lon'), desc: v('desc'), source: 'curated',
+          };
+          if (v('rating')) p.rating = v('rating');
+          if (v('bill')) p.bill = v('bill');
+          if (v('cup')) p.cup = v('cup');
+          if (v('free')) p.free = true;
+          if (v('cuisine')) p.cuisine = v('cuisine').split(', ');
+          if (v('fullName')) p.fullName = v('fullName');
+          curated.push(p);
+          byId.set(p.id, p);
+          searchIndex.push(indexItem(p));
+        }
+        resolve();
+      };
+      s.onerror = () => resolve(); // без мест по районам приложение всё равно работает
+      document.head.appendChild(s);
+    });
+  }
 
   function search(q) {
     const words = norm(q).split(/[\s,.«»"]+/).filter(Boolean);
@@ -795,6 +846,53 @@
       (list.length
         ? `<div class="rows">${list.map((p) => rowHtml(p)).join('')}</div>`
         : '<p class="empty">Здесь будут места, которые ты сохранишь. Открой любое место на карте и нажми на сердечко.</p>');
+  }
+
+  // ---------- Рядом со мной ----------
+  // Ближайшие места выбранного типа, отсортированные по расстоянию. Если геолокация недоступна — от центра карты.
+  const NEAR_TABS = [
+    { v: 'coffee', label: 'Кофе' },
+    { v: 'food', label: 'Еда' },
+    { v: 'photo', label: 'Красиво' },
+    { v: 'all', label: 'Всё' },
+  ];
+  let nearTab = 'coffee';
+  let nearFrom = null; // { lat, lon, me: true/false }
+
+  function renderNear() {
+    document.querySelectorAll('#near-tabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.v === nearTab));
+    if (!nearFrom) return;
+    const list = curated
+      .filter((p) => (nearTab === 'all' || p.cat === nearTab) && passesFilters(p))
+      .map((p) => ({ p, d: distance(nearFrom, p) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 20);
+    $('#near-note').textContent = nearFrom.me ? '' : 'Не получилось узнать, где ты, — показываю места рядом с центром карты';
+    $('#near-list').innerHTML = list.length
+      ? list.map(({ p, d }) => rowHtml(p, null, distanceText(d))).join('')
+      : '<p class="empty">Под твои фильтры рядом ничего нет — попробуй их смягчить.</p>';
+  }
+
+  async function openNear() {
+    haptic.tap();
+    $('#near-list').innerHTML = '<p class="empty">Ищу, где ты…</p>';
+    $('#near-note').textContent = '';
+    nearFrom = null;
+    renderNear();
+    openSheet('near');
+    try {
+      const pos = state.user || (await getPosition());
+      state.user = pos;
+      MapView.setUser(pos.lat, pos.lon, userEl());
+      const b = cfg.MAP_BOUNDS;
+      const inMoscow = pos.lat > b.south && pos.lat < b.north && pos.lon > b.west && pos.lon < b.east;
+      nearFrom = inMoscow ? { lat: pos.lat, lon: pos.lon, me: true } : null;
+    } catch (e) { /* нет доступа к геолокации */ }
+    if (!nearFrom) {
+      const v = state.view.bounds;
+      nearFrom = { lat: (v.north + v.south) / 2, lon: (v.east + v.west) / 2, me: false };
+    }
+    renderNear();
   }
 
   // ---------- Подборки ----------
@@ -1030,8 +1128,18 @@
     });
     $('#open-favs').addEventListener('click', () => { haptic.tap(); renderFavs(); openSheet('favs'); });
     $('#coll-close').addEventListener('click', closeCollection);
+    $('#near-tabs').innerHTML = NEAR_TABS.map((t) => `<button type="button" class="seg-btn" data-v="${t.v}">${t.label}</button>`).join('');
+    $('#near-tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('.seg-btn');
+      if (!b) return;
+      nearTab = b.dataset.v;
+      haptic.tap();
+      renderNear();
+      $('#near-sheet').scrollTop = 0;
+    });
+    $('#open-near').addEventListener('click', openNear);
     // Строки мест и плитки подборок в поиске и избранном
-    for (const sel of ['#search-body', '#favs-sheet']) {
+    for (const sel of ['#search-body', '#favs-sheet', '#near-list']) {
       $(sel).addEventListener('click', (e) => {
         const coll = e.target.closest('[data-coll]');
         if (coll) return openCollection(coll.dataset.coll);
@@ -1082,10 +1190,16 @@
     hideSplash();
     // Ссылка от друга (startapp=p-<id>) — сразу открываем это место.
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
+    const districtsReady = loadDistrictPlaces().then(() => { render(); syncFilters(); });
     const sp = startParam();
-    const shared = sp.startsWith('p-') && byId.get(sp.slice(2));
-    if (shared) setTimeout(() => openPlace(shared, { focus: true }), 900);
-    else if (sp === 'lucky' || new URLSearchParams(location.search).get('lucky') === '1') setTimeout(lucky, 1700);
+    if (sp.startsWith('p-')) {
+      districtsReady.then(() => {
+        const shared = byId.get(sp.slice(2));
+        if (shared) setTimeout(() => openPlace(shared, { focus: true }), 300);
+      });
+    } else if (sp === 'lucky' || new URLSearchParams(location.search).get('lucky') === '1') {
+      districtsReady.then(() => setTimeout(lucky, 900));
+    }
   }
 
   main();
