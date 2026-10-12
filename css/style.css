@@ -482,8 +482,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .route-metro { margin: 10px 0 0; color: var(--hint); font-size: 13px; font-weight: 700; line-height: 1.7; }
 .season-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; font-weight: 800; line-height: 17px; vertical-align: 1px; }
 .stop-num--me .ic { width: 15px; height: 15px; }
-.route-filters { margin: 0 0 12px; }
-.route-filters .seg-btn { height: 34px; padding: 0 12px; font-size: 13px; }
+.route-filter-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.route-filter-btn { height: 40px; padding: 0 14px; gap: 6px; font-size: 14px; }
+.route-filter-btn .badge { margin-left: 2px; }
+.route-filter-reset { border: 0; background: none; color: var(--accent-ink); font-weight: 800; font-size: 13.5px; cursor: pointer; }
+.route-filter-count { margin-left: auto; color: var(--hint); font-size: 13px; font-weight: 700; }
 
 /* «Собери маршрут за меня» */
 .gen { margin-bottom: 14px; border: 1px solid var(--accent); border-radius: 16px; background: var(--accent-soft); }

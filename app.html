@@ -9,7 +9,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <!-- Версия файлов: tools/publish.ps1 подставляет сюда время публикации -->
-  <script>window.APP_VERSION = '202610122230';</script>
+  <script>window.APP_VERSION = '202610122238';</script>
   <!-- Заранее открываем соединения с серверами карты, шрифтов и Telegram — быстрее запуск -->
   <link rel="preconnect" href="https://api-maps.yandex.ru" crossorigin>
   <link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin>
@@ -22,7 +22,7 @@
   <title>Куда пойти</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4C20.4 4 11 13 11 24.3 11 39.5 32 60 32 60s21-20.5 21-35.7C53 13 43.6 4 32 4z' fill='%23ff4059'/%3E%3Ccircle cx='32' cy='24' r='8' fill='%23fff'/%3E%3C/svg%3E">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=202610122230">
+  <link rel="stylesheet" href="css/style.css?v=202610122238">
 </head>
 <body>
   <!-- Иконки: один набор на всё приложение (метки, кнопки, карточки) -->
@@ -188,6 +188,38 @@
     <div id="routes-body"></div>
   </section>
 
+  <!-- Фильтры маршрутов — как фильтры карты -->
+  <section id="rfilters-sheet" class="sheet" aria-label="Фильтры маршрутов">
+    <div class="sheet-handle"></div>
+    <h2 class="sheet-title">Фильтры маршрутов</h2>
+    <div class="f-group">
+      <div class="f-label budget-head">Бюджет на человека <b id="rf-budget-value">Любой</b></div>
+      <input id="rf-budget" class="budget-range" type="range" min="0" step="1" aria-label="Бюджет на человека">
+      <div class="budget-scale"><span>Бесплатно</span><span>Любой</span></div>
+    </div>
+    <div class="f-group">
+      <div class="f-label budget-head">Сколько времени <b id="rf-time-value">Любое</b></div>
+      <input id="rf-time" class="budget-range" type="range" min="0" step="1" aria-label="Сколько времени">
+      <div class="budget-scale"><span>до 2 ч</span><span>Любое</span></div>
+    </div>
+    <div class="f-group">
+      <div class="f-label">Где</div>
+      <div id="rf-setting" class="seg"></div>
+    </div>
+    <label class="switch-row">
+      <span>
+        Всё открыто сейчас
+        <small>Все места маршрута работают прямо сейчас</small>
+      </span>
+      <input id="rf-open" type="checkbox">
+      <span class="switch" aria-hidden="true"></span>
+    </label>
+    <div class="f-actions">
+      <button id="rf-reset" class="btn btn-secondary" type="button">Сбросить</button>
+      <button id="rf-apply" class="btn btn-primary" type="button">Показать</button>
+    </div>
+  </section>
+
   <!-- Один маршрут: карта с линией сверху, список остановок здесь -->
   <section id="route-sheet" class="sheet" aria-label="Маршрут"></section>
 
@@ -208,14 +240,14 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/config.js?v=202610122230"></script>
-  <script src="js/places.js?v=202610122230"></script>
-  <script src="js/collections.js?v=202610122230"></script>
-  <script src="js/routes.js?v=202610122230"></script>
-  <script src="js/metro.js?v=202610122230"></script>
-  <script src="js/photos.js?v=202610122230"></script>
-  <script src="js/hours.js?v=202610122230"></script>
-  <script src="js/map.js?v=202610122230"></script>
-  <script src="js/app.js?v=202610122230"></script>
+  <script src="js/config.js?v=202610122238"></script>
+  <script src="js/places.js?v=202610122238"></script>
+  <script src="js/collections.js?v=202610122238"></script>
+  <script src="js/routes.js?v=202610122238"></script>
+  <script src="js/metro.js?v=202610122238"></script>
+  <script src="js/photos.js?v=202610122238"></script>
+  <script src="js/hours.js?v=202610122238"></script>
+  <script src="js/map.js?v=202610122238"></script>
+  <script src="js/app.js?v=202610122238"></script>
 </body>
 </html>

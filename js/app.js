@@ -606,6 +606,8 @@
     openSheetName = null;
     if (supports('6.1')) tg.BackButton.hide();
     if (was === 'route') closeRoute();
+    // закрыли фильтры маршрутов — возвращаемся к списку маршрутов
+    else if (was === 'rfilters') { renderRoutes(); openSheet('routes'); }
     // закрыли карточку места, открытую из маршрута, — возвращаемся к маршруту
     else if (was === 'place' && activeRoute) openSheet('route');
   }
@@ -1179,14 +1181,17 @@
     const body = $('#routes-body');
     if (routesTab === 'ready') {
       // понравившиеся — сверху; фильтр по времени и цене
-      const f = ROUTE_FILTERS.find((x) => x.v === routeFilter);
       const list = READY_ROUTES.slice()
-        .filter((r) => inSeason(r) && f.test(routeStats(routePlaces(r.ids))))
+        .filter((r) => inSeason(r) && routeMatches(r))
         // сезонный — первым, потом понравившиеся
         .sort((a, b) => (!!b.season - !!a.season) || (likedRoutes.has(b.id) - likedRoutes.has(a.id)));
-      const chips = ROUTE_FILTERS.map((x) => `<button type="button" class="seg-btn${x.v === routeFilter ? ' active' : ''}" data-rfilter="${x.v}">${x.label}</button>`).join('');
-      body.innerHTML = genFormHtml() + `<div class="seg route-filters">${chips}</div>
-        <div class="route-list">${list.length ? list.map((r) => routeCardHtml(r, 'ready')).join('') : '<p class="empty">Под этот фильтр готовых маршрутов нет — попробуй «Собери маршрут за меня».</p>'}</div>
+      const n = rfActive();
+      body.innerHTML = genFormHtml() + `<div class="route-filter-bar">
+          <button type="button" class="btn btn-surface route-filter-btn" data-rfilters>${icon('filters')} Фильтры${n ? ` <span class="badge">${n}</span>` : ''}</button>
+          ${n ? '<button type="button" class="route-filter-reset" data-rfilters-reset>Сбросить</button>' : ''}
+          <span class="route-filter-count">${list.length} ${plural(list.length, 'маршрут', 'маршрута', 'маршрутов')}</span>
+        </div>
+        <div class="route-list">${list.length ? list.map((r) => routeCardHtml(r, 'ready')).join('') : '<p class="empty">Под эти фильтры готовых маршрутов нет — смягчи их или попробуй «Собери маршрут за меня».</p>'}</div>
         <p class="f-note">Скоро: маршруты от других людей и «Популярные» по лайкам.</p>`;
     } else {
       body.innerHTML = draftHtml() + (savedRoutes.length
@@ -1530,15 +1535,70 @@
     </div>`;
   }
 
-  // Фильтры готовых маршрутов
-  const ROUTE_FILTERS = [
-    { v: 'all', label: 'Все', test: () => true },
-    { v: 'short', label: 'До 2,5 ч', test: (st) => st.total <= 150 },
-    { v: 'half', label: 'Полдня', test: (st) => st.total > 150 },
-    { v: 'cheap', label: 'До 1 500 ₽', test: (st) => st.lo <= 1500 },
-    { v: 'free', label: 'Почти бесплатно', test: (st) => st.hi <= 700 },
+  // ---------- Фильтры маршрутов (шторка как у карты) ----------
+  const RF_BUDGET = [0, 500, 1000, 1500, 2000, 3000, 5000, null];
+  const RF_TIME = [120, 180, 240, 300, null]; // минут
+  const RF_SETTING = [
+    { v: 'any', label: 'Неважно' },
+    { v: 'outdoor', label: 'Больше на улице' },
+    { v: 'indoor', label: 'В помещении' },
   ];
-  let routeFilter = 'all';
+  const rf = { budget: null, time: null, setting: 'any', openNow: false };
+  const rfBudgetLabel = (v) => (v === null ? 'Любой' : v === 0 ? 'Бесплатно' : `до ${v.toLocaleString('ru-RU')} ₽`);
+  const rfTimeLabel = (v) => (v === null ? 'Любое' : `до ${v / 60} ч`);
+  const isOutdoor = (p) => p.setting === 'outdoor' || (p.cat === 'photo' && p.setting !== 'indoor');
+  const rfActive = () => (rf.budget !== null) + (rf.time !== null) + (rf.setting !== 'any') + rf.openNow;
+
+  function routeMatches(r) {
+    const ps = routePlaces(r.ids);
+    if (ps.length < 2) return false;
+    const st = routeStats(ps);
+    if (rf.budget !== null) {
+      if (rf.budget === 0 ? st.hi > 0 || st.unknown > 0 : (st.lo + st.hi) / 2 > rf.budget) return false;
+    }
+    if (rf.time !== null && st.total > rf.time) return false;
+    const outdoor = ps.filter(isOutdoor).length;
+    if (rf.setting === 'indoor' && outdoor > 0) return false;
+    if (rf.setting === 'outdoor' && outdoor < ps.length / 2) return false;
+    if (rf.openNow && ps.some((p) => Hours.minutesLeft(p.hours, new Date()) === 0)) return false;
+    return true;
+  }
+  const rfCount = () => READY_ROUTES.filter((r) => inSeason(r) && routeMatches(r)).length;
+
+  function syncRouteFilters() {
+    const set = (id, stops, value, label) => {
+      const r = $(id), i = Math.max(0, stops.indexOf(value));
+      r.max = stops.length - 1; r.value = i;
+      r.style.setProperty('--fill', (i / (stops.length - 1)) * 100 + '%');
+      r.setAttribute('aria-valuetext', label(value));
+      $(id + '-value').textContent = label(value);
+    };
+    set('#rf-budget', RF_BUDGET, rf.budget, rfBudgetLabel);
+    set('#rf-time', RF_TIME, rf.time, rfTimeLabel);
+    document.querySelectorAll('#rf-setting .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.v === rf.setting));
+    $('#rf-open').checked = rf.openNow;
+    const n = rfCount();
+    $('#rf-apply').textContent = n ? `Показать ${n} ${plural(n, 'маршрут', 'маршрута', 'маршрутов')}` : 'Ничего не нашлось';
+  }
+
+  function buildRouteFilters() {
+    $('#rf-setting').innerHTML = RF_SETTING.map((o) => `<button type="button" class="seg-btn" data-v="${o.v}">${o.label}</button>`).join('');
+    const slider = (id, stops, key) => $(id).addEventListener('input', (e) => {
+      const v = stops[+e.target.value];
+      if (v === rf[key]) return;
+      rf[key] = v; haptic.tap(); syncRouteFilters();
+    });
+    slider('#rf-budget', RF_BUDGET, 'budget');
+    slider('#rf-time', RF_TIME, 'time');
+    $('#rf-setting').addEventListener('click', (e) => {
+      const b = e.target.closest('.seg-btn');
+      if (!b) return;
+      rf.setting = b.dataset.v; haptic.tap(); syncRouteFilters();
+    });
+    $('#rf-open').addEventListener('change', (e) => { rf.openNow = e.target.checked; haptic.tap(); syncRouteFilters(); });
+    $('#rf-reset').addEventListener('click', () => { Object.assign(rf, { budget: null, time: null, setting: 'any', openNow: false }); haptic.tap(); syncRouteFilters(); });
+    $('#rf-apply').addEventListener('click', () => closeSheets()); // закрытие вернёт к списку маршрутов
+  }
 
   function routeFromCode(code) {
     if (code.startsWith('r-')) return READY_ROUTES.find((r) => r.id === code.slice(2)) || null;
@@ -1842,6 +1902,7 @@
     });
     $('#open-near').addEventListener('click', openNear);
     // ----- Маршруты -----
+    buildRouteFilters();
     $('#open-routes').addEventListener('click', () => openRoutes());
     $('#routes-tabs').addEventListener('click', (e) => {
       const b = e.target.closest('.seg-btn');
@@ -1854,7 +1915,7 @@
       const t = e.target;
       // «Собери маршрут за меня» и фильтры
       const gOpen = t.closest('[data-gen-open]'), gSet = t.closest('[data-gen]'), gTog = t.closest('[data-gen-toggle]');
-      const gGo = t.closest('[data-gen-go]'), rf = t.closest('[data-rfilter]');
+      const gGo = t.closest('[data-gen-go]');
       if (gOpen) { gen.open = !gen.open; haptic.tap(); renderRoutes(); return; }
       if (gSet) {
         const v = gSet.dataset.val;
@@ -1869,7 +1930,8 @@
         return;
       }
       if (gGo) { gGo.disabled = true; gGo.textContent = 'Собираю…'; generateRoute().finally(() => { gGo.disabled = false; gGo.textContent = 'Собрать маршрут'; }); return; }
-      if (rf) { routeFilter = rf.dataset.rfilter; haptic.tap(); renderRoutes(); return; }
+      if (t.closest('[data-rfilters]')) { haptic.tap(); syncRouteFilters(); openSheet('rfilters'); return; }
+      if (t.closest('[data-rfilters-reset]')) { Object.assign(rf, { budget: null, time: null, setting: 'any', openNow: false }); haptic.tap(); renderRoutes(); return; }
       const like = t.closest('[data-like]'), del = t.closest('[data-del]'), move = t.closest('[data-move]');
       const remove = t.closest('[data-remove]'), act = t.closest('[data-draft]'), card = t.closest('[data-route]');
       if (like) { toggleRouteLike(like.dataset.like); renderRoutes(); return; }
