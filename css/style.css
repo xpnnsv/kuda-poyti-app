@@ -514,11 +514,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   background: var(--surface);
   box-shadow: 0 -4px 30px rgba(20, 14, 17, 0.12);
   transform: translateY(105%);
-  transition: transform 0.34s cubic-bezier(.2, .8, .2, 1);
+  /* закрытая шторка после анимации прячется совсем: не рисуется и не ловит фокус */
+  visibility: hidden;
+  transition: transform 0.34s cubic-bezier(.2, .8, .2, 1), visibility 0s linear 0.34s;
   overscroll-behavior: contain;
-  will-change: transform;
+  /* без will-change: иначе каждая из скрытых шторок постоянно держит свой слой в памяти телефона */
 }
-.sheet.open { transform: translateY(0); }
+.sheet.open { transform: translateY(0); visibility: visible; transition: transform 0.34s cubic-bezier(.2, .8, .2, 1); }
 .sheet--tall { height: 82vh; }
 
 .sheet-handle {

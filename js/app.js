@@ -318,7 +318,7 @@
 
   // Места, найденные живым поиском Яндекса (кнопка «Найти здесь»)
   let livePlaces = [];
-  const allPlaces = () => curated.concat(livePlaces);
+  const allPlaces = () => (livePlaces.length ? curated.concat(livePlaces) : curated);
   const allMatches = () => allPlaces().filter(matches);
 
   // ---------- Живой поиск: «API поиска по организациям» Яндекса ----------
@@ -482,7 +482,8 @@
     const pts = [];
     for (const p of places) {
       const x = ((p.lon - b.west) / (b.east - b.west)) * w;
-      const y = ((mN - merc(p.lat)) / (mN - mS)) * h;
+      if (p._my === undefined) p._my = merc(p.lat); // проекция широты не меняется — считаем один раз
+      const y = ((mN - p._my) / (mN - mS)) * h;
       // считаем и чуть за краем экрана (четверть), чтобы при сдвиге карты метки не «выпрыгивали»
       if (x < -w / 4 || x > w * 1.25 || y < -h / 4 || y > h * 1.25) continue;
       const selected = !!sel && sel.id === p.id;
@@ -815,25 +816,34 @@
         if (!data) return resolve();
         const col = {};
         data.cols.forEach((c, i) => (col[c] = i));
-        for (const r of data.rows) {
-          const v = (k) => r[col[k]];
-          if (byId.has('y' + v('ym'))) continue;
-          const p = {
-            id: 'y' + v('ym'), ym: v('ym'), pop: v('pop'), name: v('name'), cat: v('cat'),
-            setting: SETTING_CODES[v('setting')], hours: v('hours') || null, address: v('address'),
-            district: data.districts[v('district')], lat: v('lat'), lon: v('lon'), desc: v('desc'), source: 'curated',
-          };
-          if (v('rating')) p.rating = v('rating');
-          if (v('bill')) p.bill = v('bill');
-          if (v('cup')) p.cup = v('cup');
-          if (v('free')) p.free = true;
-          if (v('cuisine')) p.cuisine = v('cuisine').split(', ');
-          if (v('fullName')) p.fullName = v('fullName');
-          curated.push(p);
-          byId.set(p.id, p);
-          searchIndex.push(indexItem(p));
-        }
-        resolve();
+        const rows = data.rows;
+        // Разбираем порциями по 300 мест: на слабом телефоне 2000 мест за раз подвешивали бы карту
+        let i = 0;
+        const step = () => {
+          const end = Math.min(rows.length, i + 300);
+          for (; i < end; i++) {
+            const r = rows[i];
+            const v = (k) => r[col[k]];
+            if (byId.has('y' + v('ym'))) continue;
+            const p = {
+              id: 'y' + v('ym'), ym: v('ym'), pop: v('pop'), name: v('name'), cat: v('cat'),
+              setting: SETTING_CODES[v('setting')], hours: v('hours') || null, address: v('address'),
+              district: data.districts[v('district')], lat: v('lat'), lon: v('lon'), desc: v('desc'), source: 'curated',
+            };
+            if (v('rating')) p.rating = v('rating');
+            if (v('bill')) p.bill = v('bill');
+            if (v('cup')) p.cup = v('cup');
+            if (v('free')) p.free = true;
+            if (v('cuisine')) p.cuisine = v('cuisine').split(', ');
+            if (v('fullName')) p.fullName = v('fullName');
+            curated.push(p);
+            byId.set(p.id, p);
+            searchIndex.push(indexItem(p));
+          }
+          if (i < rows.length) setTimeout(step, 0);
+          else { window.DISTRICT_PLACES = null; resolve(); }
+        };
+        step();
       };
       s.onerror = () => resolve(); // без мест по районам приложение всё равно работает
       document.head.appendChild(s);
@@ -1102,8 +1112,11 @@
   }
 
   function syncChips() {
-    document.querySelectorAll('.chip').forEach((b) => b.classList.toggle('active',
-      b.dataset.cat === 'all' ? !state.cats.size : state.cats.has(b.dataset.cat)));
+    document.querySelectorAll('.chip').forEach((b) => {
+      const on = b.dataset.cat === 'all' ? !state.cats.size : state.cats.has(b.dataset.cat);
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on);
+    });
   }
 
   function segment(sel, options, key) {
@@ -1273,7 +1286,7 @@
     hideSplash();
     // Ссылка от друга (startapp=p-<id>) — сразу открываем это место.
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
-    const districtsReady = loadDistrictPlaces().then(() => { render(); syncFilters(); });
+    const districtsReady = loadDistrictPlaces().then(() => { render(); syncFilters(); updateFavButton(); });
     const sp = startParam();
     if (sp.startsWith('p-')) {
       districtsReady.then(() => {
