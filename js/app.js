@@ -698,6 +698,7 @@
         <span class="tag${priceUnknown(p) ? ' tag--unknown' : ''}">${priceText(p)}</span>
         <span class="tag">${SETTING_TEXT[p.setting] || ''}</span>
         ${d !== null ? `<span class="tag">${distanceText(d)}</span>` : ''}
+        ${visited.has(p.id) ? '<span class="tag tag--open">✓ Ты здесь был</span>' : ''}
       </div>
       ${p.desc ? `<p class="place-desc">${esc(p.desc)}</p>` : ''}
       ${insideHtml(p)}
@@ -1038,13 +1039,16 @@
 
   function loadCloudRoutes() {
     if (!supports('6.9')) return;
-    tg.CloudStorage.getItems(['route_draft', 'routes_saved', 'routes_liked'], (err, v) => {
+    tg.CloudStorage.getItems(['route_draft', 'routes_saved', 'routes_liked', 'visited', 'routes_done'], (err, v) => {
       if (err || !v) return;
       const parse = (s) => { try { return JSON.parse(s); } catch (e) { return null; } };
       const d = parse(v.route_draft), s = parse(v.routes_saved), l = parse(v.routes_liked);
+      const vis = parse(v.visited), done = parse(v.routes_done);
       if (Array.isArray(d)) draft = d;
       if (Array.isArray(s)) savedRoutes = s;
       if (Array.isArray(l)) { likedRoutes.clear(); l.forEach((id) => likedRoutes.add(id)); }
+      if (Array.isArray(vis)) vis.forEach((id) => visited.add(id));
+      if (Array.isArray(done)) routesDone = done;
       updateDraftBadge();
     });
   }
@@ -1097,12 +1101,13 @@
     const st = routeStats(ps);
     const liked = likedRoutes.has(r.id);
     const locked = r.adult && !adultOk;
+    const done = routesDone.some((d) => d.id === r.id);
     return `<div class="route-card${locked ? ' route-card--locked' : ''}" data-route="${kind}:${esc(r.id)}" role="button" tabindex="0">
       <div class="route-top">
         <span class="route-emoji">${r.emoji || '🚶'}</span>
         <div class="route-title"><b>${esc(r.title)}${r.adult ? AGE_BADGE : ''}</b>
           <small>${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</small>
-          <small class="route-price">${routePriceText(st)}</small></div>
+          <small class="route-price">${routePriceText(st)}${done ? ' · <span class="route-done">✓ пройден</span>' : ''}</small></div>
         ${kind === 'saved'
           ? `<button class="icon-btn" type="button" data-del="${esc(r.id)}" aria-label="Удалить маршрут">${icon('close')}</button>`
           : `<button class="icon-btn${liked ? ' is-fav' : ''}" type="button" data-like="${esc(r.id)}" aria-pressed="${liked}" aria-label="Нравится">${icon(liked ? 'heart-fill' : 'heart')}</button>`}
@@ -1143,6 +1148,8 @@
 
   function renderRoutes() {
     document.querySelectorAll('#routes-tabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.v === routesTab));
+    const doneN = new Set(routesDone.map((d) => d.id)).size;
+    $('#routes-stat').textContent = doneN ? `Пройдено маршрутов: ${doneN} · мест отмечено: ${visited.size}` : '';
     const body = $('#routes-body');
     if (routesTab === 'ready') {
       // понравившиеся — сверху; фильтр по времени и цене
@@ -1191,6 +1198,72 @@
     fitPlaces(activeRoute.fromMe ? [activeRoute.fromMe].concat(ps) : ps, Math.round(window.innerHeight * 0.45));
   }
 
+  // ---------- «Когда идёшь?» ----------
+  // Время по Москве: «сегодня в 19:00» считаем от московской даты, где бы ни был телефон (Москва — UTC+3)
+  const mskParts = (d) => {
+    const p = {};
+    for (const x of new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(d)) p[x.type] = x.value;
+    return p;
+  };
+  const mskAt = (dayOffset, hour) => { const p = mskParts(new Date()); return new Date(Date.UTC(+p.year, +p.month - 1, +p.day + dayOffset, hour - 3, 0)); };
+  const clock = (d) => new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }).format(d);
+
+  function startOptions() {
+    const now = new Date(), p = mskParts(now), h = +p.hour;
+    const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(p.weekday);
+    const opts = [{ v: 'now', label: 'Сейчас', at: () => new Date() }, { v: 'h1', label: 'Через час', at: () => new Date(Date.now() + 3600000) }];
+    if (h < 11) opts.push({ v: 't12', label: 'Сегодня в 12:00', at: () => mskAt(0, 12) });
+    if (h < 18) opts.push({ v: 't19', label: 'Сегодня в 19:00', at: () => mskAt(0, 19) });
+    opts.push({ v: 'tm12', label: 'Завтра в 12:00', at: () => mskAt(1, 12) });
+    opts.push({ v: 'tm19', label: 'Завтра в 19:00', at: () => mskAt(1, 19) });
+    if (wd < 4) opts.push({ v: 'sat', label: 'В субботу в 12:00', at: () => mskAt(5 - wd, 12) });
+    return opts;
+  }
+
+  // Для каждой остановки: во сколько придёшь и успеешь ли, пока открыто
+  function routeTimeline(r, ps) {
+    const opt = startOptions().find((o) => o.v === r.startAt) || startOptions()[0];
+    let t = opt.at().getTime();
+    if (r.fromMe) t += legMin(r.fromMe, ps[0]) * 60000;
+    return ps.map((p, i) => {
+      if (i) t += legMin(ps[i - 1], p) * 60000;
+      const arrive = new Date(t);
+      const stay = stayFor(p);
+      const left = Hours.minutesLeft(p.hours, arrive);
+      let warn = '';
+      if (left === 0) {
+        const open = Hours.minutesToOpen(p.hours, arrive);
+        warn = open === null ? 'будет закрыто' : `будет закрыто — откроется в ${clock(new Date(t + open * 60000))}`;
+      } else if (left !== null && left !== Infinity && left < stay) {
+        warn = `закроется в ${clock(new Date(t + left * 60000))} — успеешь ~${Math.max(5, Math.round(left / 5) * 5)} мин`;
+      }
+      t += stay * 60000;
+      return { arrive: clock(arrive), warn };
+    });
+  }
+
+  // ---------- Пройденные места и маршруты ----------
+  const visited = new Set(readJson('visited', []));
+  let routesDone = readJson('routes_done', []); // [{ id, title, ts }]
+  function saveVisited() {
+    const v = JSON.stringify([...visited].slice(-300)), d = JSON.stringify(routesDone.slice(-50));
+    try { localStorage.setItem('visited', v); localStorage.setItem('routes_done', d); } catch (e) { /* хранилище недоступно */ }
+    if (supports('6.9')) { if (v.length < 4000) tg.CloudStorage.setItem('visited', v); if (d.length < 4000) tg.CloudStorage.setItem('routes_done', d); }
+  }
+
+  function toggleVisited(id) {
+    if (visited.has(id)) visited.delete(id); else visited.add(id);
+    haptic.tap();
+    const r = activeRoute;
+    if (r && r.ids.every((x) => visited.has(x)) && !routesDone.some((d) => d.id === r.id && Date.now() - d.ts < 12 * 3600000)) {
+      routesDone.push({ id: r.id, title: r.title, ts: Date.now() });
+      haptic.notify('success');
+      const n = routesDone.length;
+      toast(`Маршрут пройден! Это твой ${n}-й маршрут 🎉`);
+    }
+    saveVisited();
+  }
+
   function drawRouteLine() {
     const r = activeRoute;
     const pts = routePlaces(r.ids).map((p) => [p.lat, p.lon]);
@@ -1206,14 +1279,19 @@
     const meStop = r.fromMe ? `<li class="route-stop route-stop--me"><span class="stop-num stop-num--me">${icon('locate')}</span>
         <span class="stop-name"><b>Ты здесь</b><small>начало маршрута</small></span></li>
         <li class="route-leg">${legMin(r.fromMe, ps[0])} мин пешком</li>` : '';
+    const tl = routeTimeline(r, ps);
     const stops = meStop + ps.map((p, i) => {
       const leg = i ? `<li class="route-leg">${legMin(ps[i - 1], p)} мин пешком</li>` : '';
-      const s = Hours.status(p.hours).state;
-      return `${leg}<li class="route-stop" data-id="${esc(p.id)}">
+      const been = visited.has(p.id);
+      return `${leg}<li class="route-stop${been ? ' route-stop--done' : ''}" data-id="${esc(p.id)}">
         <span class="stop-num cat--${p.cat}">${i + 1}</span>
-        <span class="stop-name"><b>${esc(p.name)}</b><small>${esc(catLabel(p))} · ~${stayText(stayFor(p))}${stopPrice(p)}${s === 'closed' ? ' · <span class="stop-closed">сейчас закрыто</span>' : ''}</small></span>
+        <span class="stop-name"><b>${esc(p.name)}</b><small>в ${tl[i].arrive} · ~${stayText(stayFor(p))}${stopPrice(p)}</small>
+          ${tl[i].warn ? `<small class="stop-closed">${tl[i].warn}</small>` : ''}</span>
+        <button class="stop-check${been ? ' is-on' : ''}" type="button" data-visit="${esc(p.id)}" aria-pressed="${been}" aria-label="Был здесь">✓</button>
       </li>`;
     }).join('');
+    const opts = startOptions().map((o) => `<option value="${o.v}"${o.v === (r.startAt || 'now') ? ' selected' : ''}>${o.label}</option>`).join('');
+    const doneCount = r.ids.filter((id) => visited.has(id)).length;
     $('#route-sheet').innerHTML = `
       <div class="sheet-handle"></div>
       <div class="place-head">
@@ -1230,7 +1308,9 @@
         </div>
       </div>
       ${r.desc ? `<p class="place-desc">${esc(r.desc)}</p>` : ''}
+      <label class="route-when">Когда идёшь? <select data-rstart>${opts}</select></label>
       <ol class="route-stops">${stops}</ol>
+      ${doneCount ? `<p class="route-progress">Отмечено ${doneCount} из ${r.ids.length}${doneCount === r.ids.length ? ' — маршрут пройден 🎉' : ''}</p>` : ''}
       <div class="draft-links"><button type="button" data-raction="from-me">${r.fromMe ? 'Начать с первого места' : 'Начать отсюда'}</button></div>
       <p class="place-note">Время — примерное: дорога пешком и сколько обычно проводят в таком месте.</p>
       <div class="place-actions">
@@ -1789,7 +1869,16 @@
       }
       if (card) { const r = findRoute(card.dataset.route); if (r) showRoute(r); }
     });
+    $('#route-sheet').addEventListener('change', (e) => {
+      if (!e.target.matches('[data-rstart]') || !activeRoute) return;
+      activeRoute.startAt = e.target.value;
+      haptic.tap();
+      renderRouteSheet();
+    });
     $('#route-sheet').addEventListener('click', (e) => {
+      const visit = e.target.closest('[data-visit]');
+      if (visit) { toggleVisited(visit.dataset.visit); renderRouteSheet(); return; }
+      if (e.target.closest('select, label')) return;
       const a = e.target.closest('[data-raction]');
       const stop = e.target.closest('.route-stop');
       const r = activeRoute;
