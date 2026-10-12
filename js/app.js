@@ -173,6 +173,47 @@
     if (el) el.classList.toggle('mk--fav', on);
   }
 
+  // ---------- Подтверждение возраста (бары и кальянные 18+) ----------
+  // Пока человек не подтвердил, что ему есть 18, бары нигде не показываются. Ответ «да» запоминается
+  // в телефоне и в облаке Telegram; «нет» не запоминается — спросим снова при следующем нажатии.
+  let adultOk = false;
+  try { adultOk = localStorage.getItem('age18') === 'yes'; } catch (e) { /* хранилище недоступно */ }
+  let ageResolve = null;
+
+  function loadCloudAge() {
+    if (!supports('6.9') || adultOk) return;
+    tg.CloudStorage.getItem('age18', (err, value) => {
+      if (err || value !== 'yes') return;
+      adultOk = true;
+      try { localStorage.setItem('age18', 'yes'); } catch (e) { /* хранилище недоступно */ }
+      render();
+    });
+  }
+
+  // Возвращает Promise<boolean>: можно ли показывать бары
+  function askAdult() {
+    if (adultOk) return Promise.resolve(true);
+    haptic.tap();
+    return new Promise((resolve) => {
+      openSheet('age');
+      ageResolve = resolve;
+    });
+  }
+
+  function answerAge(yes) {
+    const resolve = ageResolve;
+    ageResolve = null;
+    if (yes) {
+      adultOk = true;
+      try { localStorage.setItem('age18', 'yes'); } catch (e) { /* хранилище недоступно */ }
+      if (supports('6.9')) tg.CloudStorage.setItem('age18', 'yes');
+      haptic.notify('success');
+    }
+    closeSheets();
+    if (!yes) toast('Бары и кальянные — только для тех, кому есть 18');
+    if (resolve) resolve(yes);
+  }
+
   // ---------- Тема и Telegram ----------
   // Тема: 'auto' — как в Telegram (или в системе), 'light', 'dark'. Выбор запоминается.
   const THEMES = ['auto', 'light', 'dark'];
@@ -258,6 +299,7 @@
 
   // ---------- Фильтрация ----------
   function matches(p) {
+    if (p.cat === 'night' && !adultOk) return false; // бары — только после подтверждения возраста
     if (state.collection && !state.collection.set.has(p.id)) return false;
     if (state.cat !== 'all' && p.cat !== state.cat) return false;
     return passesFilters(p);
@@ -531,6 +573,8 @@
     $('#backdrop').classList.remove('show');
     document.body.classList.remove('sheet-open');
     $('#search-input').blur();
+    // Окно «есть 18?» закрыли без ответа — считаем, что «нет»
+    if (ageResolve) { const r = ageResolve; ageResolve = null; r(false); }
     if (openSheetName === 'place') {
       state.selected = null;
       state.lucky = false;
@@ -798,6 +842,7 @@
     if (!words.length) return [];
     const res = [];
     for (const it of searchIndex) {
+      if (it.p.cat === 'night' && !adultOk) continue;
       let score = 0;
       for (const w of words) {
         const s = it.name.startsWith(w) ? 30 : it.name.includes(' ' + w) ? 20 : it.name.includes(w) ? 12 : it.rest.includes(w) ? 4 : 0;
@@ -1033,11 +1078,15 @@
     box.addEventListener('click', (e) => {
       const b = e.target.closest('.chip');
       if (!b) return;
-      state.cat = b.dataset.cat;
-      haptic.tap();
-      syncChips();
-      render();
-      b.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      const pick = () => {
+        state.cat = b.dataset.cat;
+        haptic.tap();
+        syncChips();
+        render();
+        b.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      };
+      if (CATS[b.dataset.cat] && CATS[b.dataset.cat].adult) askAdult().then((ok) => ok && pick());
+      else pick();
     });
     syncChips();
   }
@@ -1146,12 +1195,15 @@
     $('#near-tabs').addEventListener('click', (e) => {
       const b = e.target.closest('.seg-btn');
       if (!b) return;
-      nearTab = b.dataset.v;
-      haptic.tap();
-      renderNear();
-      $('#near-sheet').scrollTop = 0;
+      const pick = () => { nearTab = b.dataset.v; haptic.tap(); renderNear(); $('#near-sheet').scrollTop = 0; };
+      if (b.dataset.v === 'night' && !adultOk) {
+        askAdult().then((ok) => { openSheet('near'); if (ok) pick(); });
+      } else pick();
     });
     $('#open-near').addEventListener('click', openNear);
+    $('#age-yes').addEventListener('click', () => answerAge(true));
+    $('#age-no').addEventListener('click', () => answerAge(false));
+    loadCloudAge();
     // Строки мест и плитки подборок в поиске и избранном
     for (const sel of ['#search-body', '#favs-sheet', '#near-list']) {
       $(sel).addEventListener('click', (e) => {
@@ -1215,7 +1267,10 @@
     if (sp.startsWith('p-')) {
       districtsReady.then(() => {
         const shared = byId.get(sp.slice(2));
-        if (shared) setTimeout(() => openPlace(shared, { focus: true }), 300);
+        if (!shared) return;
+        const open = () => setTimeout(() => openPlace(shared, { focus: true }), 300);
+        if (shared.cat === 'night') askAdult().then((ok) => ok && open());
+        else open();
       });
     } else if (sp === 'lucky' || new URLSearchParams(location.search).get('lucky') === '1') {
       districtsReady.then(() => setTimeout(lucky, 900));

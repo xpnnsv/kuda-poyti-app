@@ -699,6 +699,22 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .cat--mall { --c: var(--c-mall); }
 .cat--night { --c: var(--c-night); }
 
+/* Подтверждение возраста */
+.age-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: 4px auto 12px;
+  border: 2px solid var(--c-night);
+  border-radius: 50%;
+  color: var(--c-night);
+  font-size: 17px;
+  font-weight: 800;
+}
+.age-title { margin-bottom: 6px; text-align: center; }
+.age-text { margin: 0 0 20px; color: var(--hint); font-weight: 600; text-align: center; }
+
 /* Пометка «18+» у баров и кальянных */
 .age-badge {
   display: inline-block;
