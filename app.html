@@ -9,7 +9,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <!-- Версия файлов: tools/publish.ps1 подставляет сюда время публикации -->
-  <script>window.APP_VERSION = '202610121841';</script>
+  <script>window.APP_VERSION = '202610122159';</script>
   <!-- Заранее открываем соединения с серверами карты, шрифтов и Telegram — быстрее запуск -->
   <link rel="preconnect" href="https://api-maps.yandex.ru" crossorigin>
   <link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin>
@@ -22,7 +22,7 @@
   <title>Куда пойти</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4C20.4 4 11 13 11 24.3 11 39.5 32 60 32 60s21-20.5 21-35.7C53 13 43.6 4 32 4z' fill='%23ff4059'/%3E%3Ccircle cx='32' cy='24' r='8' fill='%23fff'/%3E%3C/svg%3E">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=202610121841">
+  <link rel="stylesheet" href="css/style.css?v=202610122159">
 </head>
 <body>
   <!-- Иконки: один набор на всё приложение (метки, кнопки, карточки) -->
@@ -35,6 +35,10 @@
       <symbol id="i-photo" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.3l1.4-2.2h5.6L16.2 7h2.3A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12.8" r="3.3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
       <symbol id="i-mall" viewBox="0 0 24 24"><path d="M5.5 8h13l-1 12h-11zM9 10V7a3 3 0 0 1 6 0v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-night" viewBox="0 0 24 24"><path d="M5 4.5h14L12 12.5zM12 12.5v7M8 20h8M7.5 7.5h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="0.1 3.4"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 14l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 10l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
       <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
       <symbol id="i-heart-fill" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
@@ -101,12 +105,17 @@
       <svg class="ic" aria-hidden="true"><use href="#i-filters"/></svg>
       <span id="filter-badge" class="badge badge--corner" hidden>0</span>
     </button>
-    <button id="open-near" class="btn btn-surface" type="button">
+    <button id="open-near" class="btn btn-surface btn-flex" type="button">
       <svg class="ic" aria-hidden="true"><use href="#i-locate"/></svg>
       Рядом
     </button>
-    <button id="lucky" class="btn btn-primary btn-lucky" type="button">
-      <svg class="ic dice" aria-hidden="true"><use href="#i-dice"/></svg> Мне повезёт
+    <button id="open-routes" class="btn btn-surface btn-flex" type="button">
+      <svg class="ic" aria-hidden="true"><use href="#i-route"/></svg>
+      Маршруты
+      <span id="draft-badge" class="badge badge--corner" hidden>0</span>
+    </button>
+    <button id="lucky" class="btn btn-primary btn-square btn-lucky" type="button" aria-label="Мне повезёт — выбрать место за меня">
+      <svg class="ic dice" aria-hidden="true"><use href="#i-dice"/></svg>
     </button>
   </div>
 
@@ -167,6 +176,20 @@
     <div id="near-list" class="rows"></div>
   </section>
 
+  <!-- Маршруты: готовые и свои -->
+  <section id="routes-sheet" class="sheet sheet--tall" aria-label="Маршруты">
+    <div class="sheet-handle"></div>
+    <h2 class="sheet-title">Маршруты</h2>
+    <div id="routes-tabs" class="seg near-tabs">
+      <button type="button" class="seg-btn" data-v="ready">Готовые</button>
+      <button type="button" class="seg-btn" data-v="mine">Мои</button>
+    </div>
+    <div id="routes-body"></div>
+  </section>
+
+  <!-- Один маршрут: карта с линией сверху, список остановок здесь -->
+  <section id="route-sheet" class="sheet" aria-label="Маршрут"></section>
+
   <!-- Подтверждение возраста для баров и кальянных -->
   <section id="age-sheet" class="sheet" aria-label="Подтверждение возраста">
     <div class="sheet-handle"></div>
@@ -184,12 +207,13 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/config.js?v=202610121841"></script>
-  <script src="js/places.js?v=202610121841"></script>
-  <script src="js/collections.js?v=202610121841"></script>
-  <script src="js/photos.js?v=202610121841"></script>
-  <script src="js/hours.js?v=202610121841"></script>
-  <script src="js/map.js?v=202610121841"></script>
-  <script src="js/app.js?v=202610121841"></script>
+  <script src="js/config.js?v=202610122159"></script>
+  <script src="js/places.js?v=202610122159"></script>
+  <script src="js/collections.js?v=202610122159"></script>
+  <script src="js/routes.js?v=202610122159"></script>
+  <script src="js/photos.js?v=202610122159"></script>
+  <script src="js/hours.js?v=202610122159"></script>
+  <script src="js/map.js?v=202610122159"></script>
+  <script src="js/app.js?v=202610122159"></script>
 </body>
 </html>

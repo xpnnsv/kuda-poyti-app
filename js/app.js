@@ -297,6 +297,7 @@
 
   // ---------- Фильтрация ----------
   function matches(p) {
+    if (state.route) return state.route.includes(p.id); // открыт маршрут — на карте только его места
     if (p.cat === 'night' && !adultOk) return false; // бары — только после подтверждения возраста
     if (state.collection && !state.collection.set.has(p.id)) return false;
     if (state.cats.size && !state.cats.has(p.cat)) return false;
@@ -490,9 +491,10 @@
     pts.sort((a, c) => (c.inView - a.inView) || (c.prio - a.prio));
 
     // Порог — только в режиме «Все»: если выбрана категория, показываем её места сразу (без наложений)
-    const minP = !state.cats.size && !state.collection ? minPriority(view.zoom) : 0;
-    // В подборке мест немного — показываем их все, даже если метки накладываются (например, башни Сити)
-    const gap = state.collection ? 0 : GAP;
+    const fewPlaces = state.collection || state.route; // подборка или маршрут — мест немного
+    const minP = !state.cats.size && !fewPlaces ? minPriority(view.zoom) : 0;
+    // В подборке и маршруте показываем все места, даже если метки накладываются (например, башни Сити)
+    const gap = fewPlaces ? 0 : GAP;
     const shown = [];
     for (const t of pts) {
       if (t.prio < minP && t.p.source !== 'live') continue; // найденное через «Найти здесь» показываем всегда
@@ -526,6 +528,10 @@
     const items = shown.map((s) => {
       const el = markerEl(s.p);
       el.classList.toggle('mk--label', s.label);
+      // в маршруте у меток номера остановок
+      const n = state.route ? state.route.indexOf(s.p.id) + 1 : 0;
+      el.classList.toggle('mk--route', n > 0);
+      if (n) el.dataset.num = n;
       return { id: s.p.id, lat: s.p.lat, lon: s.p.lon, el, z: s.selected ? 1000 : Math.min(999, Math.round(Math.log10((s.p.pop || 0) + 1) * 100)) };
     });
     for (const [id, el] of markerEls) el.classList.toggle('mk--active', !!sel && sel.id === id);
@@ -536,7 +542,8 @@
   function updatePill(total, inView, shownInView) {
     const pill = $('#pill');
     pill.classList.toggle('pill--warn', total === 0);
-    if (total === 0) pill.textContent = 'Ничего не нашлось — попробуй смягчить фильтры';
+    if (state.route) pill.textContent = `Маршрут · ${placesWord(state.route.length)}`;
+    else if (total === 0) pill.textContent = 'Ничего не нашлось — попробуй смягчить фильтры';
     else if (state.collection && inView < total) pill.textContent = `Здесь ${inView} из ${total} · отдали карту, чтобы увидеть все`;
     else if (shownInView < inView) pill.textContent = `${shownInView} из ${inView} · приблизь — покажу больше`;
     else pill.textContent = `${inView} ${plural(inView, 'место', 'места', 'мест')} здесь`;
@@ -555,6 +562,8 @@
   let openSheetName = null;
 
   function openSheet(name) {
+    // открыли что-то другое (поиск, фильтры…) поверх маршрута — убираем маршрут с карты
+    if (activeRoute && !['route', 'place', 'age'].includes(name)) closeRoute();
     if (openSheetName !== name) {
       document.querySelectorAll('.sheet.open').forEach((s) => s.classList.remove('open'));
       $(`#${name}-sheet`).classList.add('open');
@@ -562,7 +571,7 @@
       openSheetName = name;
     }
     $('#backdrop').classList.add('show');
-    $('#backdrop').classList.toggle('backdrop--light', name === 'place');
+    $('#backdrop').classList.toggle('backdrop--light', name === 'place' || name === 'route');
     document.body.classList.add('sheet-open');
     if (supports('6.1')) tg.BackButton.show();
   }
@@ -577,13 +586,17 @@
     $('#search-input').blur();
     // Окно «есть 18?» закрыли без ответа — считаем, что «нет»
     if (ageResolve) { const r = ageResolve; ageResolve = null; r(false); }
-    if (openSheetName === 'place') {
+    const was = openSheetName;
+    if (was === 'place') {
       state.selected = null;
       state.lucky = false;
       render();
     }
     openSheetName = null;
     if (supports('6.1')) tg.BackButton.hide();
+    if (was === 'route') closeRoute();
+    // закрыли карточку места, открытую из маршрута, — возвращаемся к маршруту
+    else if (was === 'place' && activeRoute) openSheet('route');
   }
 
   // Закрытие шторки свайпом вниз
@@ -697,9 +710,15 @@
         <span class="ya-arrow">›</span>
       </button>
       <div class="place-actions">
-        <button class="btn btn-primary" data-action="route">Проложить маршрут</button>
-        ${state.lucky ? `<button class="btn btn-secondary" data-action="again">${icon('dice')} Ещё вариант</button>` : ''}
-      </div>`;
+        <button class="btn btn-primary" data-action="route">Как добраться</button>
+        ${p.source === 'live' ? '' : draftButtonHtml(p)}
+      </div>
+      ${state.lucky ? `<button class="btn btn-secondary btn-wide" data-action="again">${icon('dice')} Ещё вариант</button>` : ''}`;
+  }
+
+  function draftButtonHtml(p) {
+    const inDraft = draft.includes(p.id);
+    return `<button class="btn btn-secondary" data-action="add-route">${inDraft ? '✓ В маршруте' : `${icon('plus')} В маршрут`}</button>`;
   }
 
   function openPlace(p, opts) {
@@ -956,6 +975,279 @@
     renderNear();
   }
 
+  // ---------- Маршруты ----------
+  // Готовые маршруты (routes.js) и свой: «＋ В маршрут» в карточке места. Время = дорога пешком + время в местах.
+  // Лайки и сохранённые маршруты пока хранятся у пользователя (телефон + облако Telegram); общий счётчик — на сервере позже.
+  const STAY_MIN = { coffee: 30, food: 60, photo: 40, museum: 90, mall: 60, night: 90 };
+  const ROUTE_MAX = 10;
+  const READY_ROUTES = window.ROUTES || [];
+  let draft = [];          // id мест «моего маршрута» по порядку
+  let savedRoutes = [];    // [{ id, title, ids }]
+  const likedRoutes = new Set();
+  let routesTab = 'ready';
+  let activeRoute = null;  // маршрут, который сейчас на карте
+
+  const readJson = (key, fallback) => { try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; } catch (e) { return fallback; } };
+  draft = readJson('route_draft', []);
+  savedRoutes = readJson('routes_saved', []);
+  readJson('routes_liked', []).forEach((id) => likedRoutes.add(id));
+
+  function saveRoutesData(key) {
+    const data = { route_draft: draft, routes_saved: savedRoutes, routes_liked: [...likedRoutes] }[key];
+    const s = JSON.stringify(data);
+    try { localStorage.setItem(key, s); } catch (e) { /* хранилище недоступно */ }
+    if (supports('6.9') && s.length < 4000) tg.CloudStorage.setItem(key, s);
+  }
+
+  function loadCloudRoutes() {
+    if (!supports('6.9')) return;
+    tg.CloudStorage.getItems(['route_draft', 'routes_saved', 'routes_liked'], (err, v) => {
+      if (err || !v) return;
+      const parse = (s) => { try { return JSON.parse(s); } catch (e) { return null; } };
+      const d = parse(v.route_draft), s = parse(v.routes_saved), l = parse(v.routes_liked);
+      if (Array.isArray(d)) draft = d;
+      if (Array.isArray(s)) savedRoutes = s;
+      if (Array.isArray(l)) { likedRoutes.clear(); l.forEach((id) => likedRoutes.add(id)); }
+      updateDraftBadge();
+    });
+  }
+
+  const routePlaces = (ids) => ids.map((id) => byId.get(id)).filter(Boolean);
+
+  function routeStats(ps) {
+    let m = 0;
+    for (let i = 1; i < ps.length; i++) m += distance(ps[i - 1], ps[i]) * 1.3; // улицы не прямые — запас 30%
+    const walk = Math.round(m / 75);
+    const stay = ps.reduce((s, p) => s + (STAY_MIN[p.cat] || 40), 0);
+    return { km: m / 1000, walk, total: walk + stay };
+  }
+  function durText(min) {
+    const h = Math.floor(min / 60), mm = Math.round((min % 60) / 5) * 5;
+    if (!h) return `~${Math.max(5, mm)} мин`;
+    return mm === 60 ? `~${h + 1} ч` : `~${h} ч${mm ? ' ' + mm + ' мин' : ''}`;
+  }
+  const kmText = (km) => (km < 1 ? `${Math.max(10, Math.round((km * 1000) / 10) * 10)} м` : `${km.toFixed(1).replace('.', ',')} км`);
+  const placesWord = (n) => `${n} ${plural(n, 'место', 'места', 'мест')}`;
+
+  function updateDraftBadge() {
+    const n = routePlaces(draft).length;
+    $('#draft-badge').textContent = n;
+    $('#draft-badge').hidden = !n;
+  }
+
+  function routeCardHtml(r, kind) {
+    const ps = routePlaces(r.ids);
+    if (ps.length < 2) return '';
+    const st = routeStats(ps);
+    const liked = likedRoutes.has(r.id);
+    const locked = r.adult && !adultOk;
+    return `<div class="route-card${locked ? ' route-card--locked' : ''}" data-route="${kind}:${esc(r.id)}" role="button" tabindex="0">
+      <div class="route-top">
+        <span class="route-emoji">${r.emoji || '🚶'}</span>
+        <div class="route-title"><b>${esc(r.title)}${r.adult ? AGE_BADGE : ''}</b>
+          <small>${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</small></div>
+        ${kind === 'saved'
+          ? `<button class="icon-btn" type="button" data-del="${esc(r.id)}" aria-label="Удалить маршрут">${icon('close')}</button>`
+          : `<button class="icon-btn${liked ? ' is-fav' : ''}" type="button" data-like="${esc(r.id)}" aria-pressed="${liked}" aria-label="Нравится">${icon(liked ? 'heart-fill' : 'heart')}</button>`}
+      </div>
+      ${r.desc ? `<p class="route-desc">${esc(r.desc)}</p>` : ''}
+      <div class="route-chain">${locked ? 'Маршрут с барами — нажми, чтобы подтвердить возраст' : ps.map((p) => esc(p.name)).join(' → ')}</div>
+    </div>`;
+  }
+
+  function draftHtml() {
+    const ps = routePlaces(draft);
+    if (!ps.length) {
+      return `<div class="route-empty"><b>Собери свой маршрут</b>
+        <p>Открой место на карте и нажми «＋ В маршрут». Добавь 2–${ROUTE_MAX} мест — я посчитаю время и расстояние, а Яндекс Карты проведут по ним.</p></div>`;
+    }
+    const st = routeStats(ps);
+    const stops = ps.map((p, i) => `<li class="draft-stop">
+        <span class="stop-num cat--${p.cat}">${i + 1}</span>
+        <span class="stop-name"><b>${esc(p.name)}</b><small>${esc(catLabel(p))} · ${STAY_MIN[p.cat] || 40} мин</small></span>
+        <button class="icon-btn" type="button" data-move="${i}:-1" aria-label="Выше" ${i === 0 ? 'disabled' : ''}>${icon('up')}</button>
+        <button class="icon-btn" type="button" data-move="${i}:1" aria-label="Ниже" ${i === ps.length - 1 ? 'disabled' : ''}>${icon('down')}</button>
+        <button class="icon-btn" type="button" data-remove="${i}" aria-label="Убрать">${icon('close')}</button>
+      </li>`).join('');
+    return `<div class="draft">
+      <div class="section-title">Мой маршрут <small>${ps.length > 1 ? `${durText(st.total)} · ${kmText(st.km)} пешком` : 'добавь ещё хотя бы одно место'}</small></div>
+      <ol class="draft-list">${stops}</ol>
+      <div class="draft-actions">
+        <button class="btn btn-primary" type="button" data-draft="show" ${ps.length < 2 ? 'disabled' : ''}>Показать на карте</button>
+        <button class="btn btn-secondary" type="button" data-draft="save" ${ps.length < 2 ? 'disabled' : ''}>Сохранить</button>
+      </div>
+      <div class="draft-links">
+        ${ps.length > 2 ? '<button type="button" data-draft="optimize">Удобный порядок</button>' : ''}
+        <button type="button" data-draft="clear">Очистить</button>
+      </div>
+    </div>`;
+  }
+
+  function renderRoutes() {
+    document.querySelectorAll('#routes-tabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.v === routesTab));
+    const body = $('#routes-body');
+    if (routesTab === 'ready') {
+      // понравившиеся — сверху
+      const list = READY_ROUTES.slice().sort((a, b) => likedRoutes.has(b.id) - likedRoutes.has(a.id));
+      body.innerHTML = `<div class="route-list">${list.map((r) => routeCardHtml(r, 'ready')).join('')}</div>
+        <p class="f-note">Скоро: маршруты от других людей и «Популярные» по лайкам.</p>`;
+    } else {
+      body.innerHTML = draftHtml() + (savedRoutes.length
+        ? `<div class="section-title">Сохранённые</div><div class="route-list">${savedRoutes.map((r) => routeCardHtml(r, 'saved')).join('')}</div>`
+        : '');
+    }
+  }
+
+  function openRoutes(tab) {
+    haptic.tap();
+    if (tab) routesTab = tab;
+    renderRoutes();
+    openSheet('routes');
+  }
+
+  function findRoute(key) {
+    const [kind, id] = key.split(':');
+    if (kind === 'ready') return READY_ROUTES.find((r) => r.id === id);
+    if (kind === 'saved') return savedRoutes.find((r) => r.id === id);
+    if (kind === 'draft') return { id: 'draft', title: 'Мой маршрут', emoji: '🚶', ids: draft.slice(), draft: true };
+    return null;
+  }
+
+  // Показать маршрут на карте: только его места, номера и пунктир; снизу — список остановок
+  function showRoute(r) {
+    if (r.adult && !adultOk) { askAdult().then((ok) => ok && showRoute(r)); return; }
+    const ps = routePlaces(r.ids);
+    if (ps.length < 2) { toast('В маршруте должно быть хотя бы два места'); return; }
+    activeRoute = Object.assign({}, r, { ids: ps.map((p) => p.id) });
+    state.route = activeRoute.ids;
+    state.selected = null;
+    MapView.setLine(ps.map((p) => [p.lat, p.lon]));
+    renderRouteSheet();
+    openSheet('route');
+    render();
+    fitPlaces(ps, Math.round(window.innerHeight * 0.45));
+  }
+
+  function renderRouteSheet() {
+    const r = activeRoute;
+    const ps = routePlaces(r.ids);
+    const st = routeStats(ps);
+    const liked = likedRoutes.has(r.id);
+    const stops = ps.map((p, i) => {
+      const leg = i ? `<li class="route-leg">${Math.max(1, Math.round((distance(ps[i - 1], p) * 1.3) / 75))} мин пешком</li>` : '';
+      const s = Hours.status(p.hours).state;
+      return `${leg}<li class="route-stop" data-id="${esc(p.id)}">
+        <span class="stop-num cat--${p.cat}">${i + 1}</span>
+        <span class="stop-name"><b>${esc(p.name)}</b><small>${esc(catLabel(p))} · ~${STAY_MIN[p.cat] || 40} мин${s === 'closed' ? ' · <span class="stop-closed">сейчас закрыто</span>' : ''}</small></span>
+      </li>`;
+    }).join('');
+    $('#route-sheet').innerHTML = `
+      <div class="sheet-handle"></div>
+      <div class="place-head">
+        <div class="place-title">
+          <div class="place-cat">${icon('route')}Маршрут${r.adult ? AGE_BADGE : ''}</div>
+          <h2>${r.emoji ? r.emoji + ' ' : ''}${esc(r.title)}</h2>
+          <div class="place-full">${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</div>
+        </div>
+        <div class="head-actions">
+          <button class="icon-btn" type="button" data-raction="share" aria-label="Поделиться маршрутом">${icon('share')}</button>
+          ${r.draft || r.shared ? '' : `<button class="icon-btn${liked ? ' is-fav' : ''}" type="button" data-raction="like" aria-pressed="${liked}" aria-label="Нравится">${icon(liked ? 'heart-fill' : 'heart')}</button>`}
+          <button class="icon-btn" type="button" data-raction="close" aria-label="Закрыть">${icon('close')}</button>
+        </div>
+      </div>
+      ${r.desc ? `<p class="place-desc">${esc(r.desc)}</p>` : ''}
+      <ol class="route-stops">${stops}</ol>
+      <p class="place-note">Время — примерное: дорога пешком и сколько обычно проводят в таком месте.</p>
+      <div class="place-actions">
+        <button class="btn btn-primary" type="button" data-raction="go">Идти — Яндекс Карты</button>
+        ${r.shared ? '<button class="btn btn-secondary" type="button" data-raction="keep">Сохранить себе</button>' : ''}
+      </div>`;
+  }
+
+  function closeRoute() {
+    activeRoute = null;
+    state.route = null;
+    MapView.setLine(null);
+    render();
+  }
+
+  // Весь маршрут пешком в Яндекс Картах (Яндекс сам проложит путь по улицам)
+  function routeGoUrl(ps) {
+    return 'https://yandex.ru/maps/?rtext=' + ps.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join('~') + '&rtt=pd';
+  }
+
+  // Ссылка на маршрут: готовый — по названию (r-<id>), свой — по номерам мест в Яндексе (m-<коды>).
+  // В ссылку Telegram влезает 64 символа, поэтому свой маршрут — до 6 мест (до сервера).
+  function routeShareCode(r) {
+    if (READY_ROUTES.some((x) => x.id === r.id)) return 'r-' + r.id;
+    const parts = routePlaces(r.ids).map((p) => (p.ym ? Number(p.ym).toString(36) : null));
+    if (parts.some((x) => !x)) return null;
+    const code = 'm-' + parts.join('_');
+    return code.length <= 64 ? code : null;
+  }
+
+  function shareRoute(r) {
+    const code = routeShareCode(r);
+    if (!code) { toast('Поделиться ссылкой можно маршрутом до 6 мест — для длинных скоро сделаем'); return; }
+    const ps = routePlaces(r.ids);
+    const link = `https://t.me/${cfg.BOT_USERNAME}?startapp=${code}`;
+    const text = `Пойдём? Маршрут «${r.title}»: ${durText(routeStats(ps).total)}, ${placesWord(ps.length)} — ${ps.map((p) => p.name).join(' → ')}`;
+    haptic.impact();
+    if (inTelegram) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
+    else if (navigator.share) navigator.share({ title: r.title, text, url: link }).catch(() => {});
+    else if (navigator.clipboard) navigator.clipboard.writeText(link).then(() => toast('Ссылка скопирована'), () => toast(link));
+    else toast(link);
+  }
+
+  function toggleRouteLike(id) {
+    const on = !likedRoutes.has(id);
+    if (on) likedRoutes.add(id); else likedRoutes.delete(id);
+    saveRoutesData('routes_liked');
+    haptic.impact(on ? 'medium' : 'light');
+    toast(on ? 'Маршрут понравился — он теперь сверху списка' : 'Лайк убран');
+    return on;
+  }
+
+  // «＋ В маршрут» в карточке места
+  function toggleDraft(p) {
+    const i = draft.indexOf(p.id);
+    if (i >= 0) { draft.splice(i, 1); toast('Убрано из маршрута'); }
+    else {
+      if (draft.length >= ROUTE_MAX) { toast(`В маршруте может быть до ${ROUTE_MAX} мест`); return; }
+      draft.push(p.id);
+      const n = routePlaces(draft).length;
+      toast(n === 1 ? 'Первое место в маршруте! Добавь ещё — кнопка «Маршруты» внизу' : `В маршруте ${placesWord(n)}`);
+    }
+    haptic.impact();
+    saveRoutesData('route_draft');
+    updateDraftBadge();
+  }
+
+  // Удобный порядок: от первой точки каждый раз идём к ближайшей из оставшихся
+  function optimizeDraft() {
+    const ps = routePlaces(draft);
+    const out = [ps.shift()];
+    while (ps.length) {
+      const last = out[out.length - 1];
+      let best = 0;
+      ps.forEach((p, i) => { if (distance(last, p) < distance(last, ps[best])) best = i; });
+      out.push(ps.splice(best, 1)[0]);
+    }
+    const before = routeStats(routePlaces(draft)).km;
+    draft = out.map((p) => p.id);
+    saveRoutesData('route_draft');
+    const after = routeStats(out).km;
+    toast(after < before - 0.05 ? `Путь стал короче на ${kmText(before - after)}` : 'Порядок уже удобный');
+  }
+
+  function routeFromCode(code) {
+    if (code.startsWith('r-')) return READY_ROUTES.find((r) => r.id === code.slice(2)) || null;
+    if (!code.startsWith('m-')) return null;
+    const byYm = new Map(curated.filter((p) => p.ym).map((p) => [String(p.ym), p]));
+    const ids = code.slice(2).split('_').map((c) => byYm.get(String(parseInt(c, 36)))).filter(Boolean).map((p) => p.id);
+    return ids.length > 1 ? { id: 'shared', title: 'Маршрут от друга', emoji: '🤝', ids, shared: true } : null;
+  }
+
   // ---------- Подборки ----------
   function openCollection(id) {
     const c = COLLECTIONS.find((x) => x.id === id);
@@ -982,8 +1274,9 @@
     syncFilters();
   }
 
-  // Показать все места на экране целиком (с полями под верхнюю панель)
-  function fitPlaces(list) {
+  // Показать все места на экране целиком (с полями под верхнюю панель; bottom — сколько px снизу закрыто шторкой)
+  function fitPlaces(list, bottom) {
+    bottom = bottom || 0;
     if (!list.length) return;
     let s = 90, n = -90, w = 180, e = -180;
     for (const p of list) {
@@ -991,12 +1284,14 @@
       w = Math.min(w, p.lon); e = Math.max(e, p.lon);
     }
     const el = $('#map');
-    const W = el.clientWidth - 60, H = el.clientHeight - 220;
+    const top = 150; // поиск и чипсы
+    const W = el.clientWidth - 60, H = Math.max(120, el.clientHeight - top - bottom - 40);
     const zx = Math.log2((W * 360) / (256 * Math.max(e - w, 0.002)));
     const zy = Math.log2((H * 2 * Math.PI) / (256 * Math.max(merc(n) - merc(s), 0.00005)));
-    const zoom = Math.max(maxViewZoom(), Math.min(15, zx, zy));
-    // Центр чуть выше середины мест: верх карты закрыт поиском и чипсами
-    const cy = (merc(n) + merc(s)) / 2 + (70 * 2 * Math.PI) / (256 * Math.pow(2, zoom));
+    const zoom = Math.max(maxViewZoom(), Math.min(16, zx, zy));
+    // Сдвигаем центр так, чтобы места оказались посередине видимой части (между верхней панелью и шторкой)
+    const shiftPx = (bottom - top) / 2 + 20;
+    const cy = (merc(n) + merc(s)) / 2 - (shiftPx * 2 * Math.PI) / (256 * Math.pow(2, zoom));
     MapView.flyTo((Math.atan(Math.exp(cy)) * 360) / Math.PI - 90, (w + e) / 2, zoom);
   }
 
@@ -1246,6 +1541,72 @@
       } else pick();
     });
     $('#open-near').addEventListener('click', openNear);
+    // ----- Маршруты -----
+    $('#open-routes').addEventListener('click', () => openRoutes());
+    $('#routes-tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('.seg-btn');
+      if (!b) return;
+      routesTab = b.dataset.v;
+      haptic.tap();
+      renderRoutes();
+    });
+    $('#routes-body').addEventListener('click', (e) => {
+      const t = e.target;
+      const like = t.closest('[data-like]'), del = t.closest('[data-del]'), move = t.closest('[data-move]');
+      const remove = t.closest('[data-remove]'), act = t.closest('[data-draft]'), card = t.closest('[data-route]');
+      if (like) { toggleRouteLike(like.dataset.like); renderRoutes(); return; }
+      if (del) {
+        savedRoutes = savedRoutes.filter((r) => r.id !== del.dataset.del);
+        saveRoutesData('routes_saved'); haptic.tap(); renderRoutes(); return;
+      }
+      if (move) {
+        const [i, d] = move.dataset.move.split(':').map(Number);
+        const j = i + d;
+        if (j < 0 || j >= draft.length) return;
+        [draft[i], draft[j]] = [draft[j], draft[i]];
+        saveRoutesData('route_draft'); haptic.tap(); renderRoutes(); return;
+      }
+      if (remove) {
+        draft.splice(+remove.dataset.remove, 1);
+        saveRoutesData('route_draft'); updateDraftBadge(); haptic.tap(); renderRoutes(); return;
+      }
+      if (act) {
+        const a = act.dataset.draft;
+        if (a === 'show') showRoute(findRoute('draft'));
+        else if (a === 'optimize') { optimizeDraft(); renderRoutes(); }
+        else if (a === 'clear') { draft = []; saveRoutesData('route_draft'); updateDraftBadge(); haptic.tap(); renderRoutes(); }
+        else if (a === 'save') {
+          const ps = routePlaces(draft);
+          savedRoutes.unshift({ id: 's' + Date.now().toString(36), title: `${ps[0].name} → ${ps[ps.length - 1].name}`, emoji: '📍', ids: draft.slice() });
+          savedRoutes = savedRoutes.slice(0, 10);
+          draft = [];
+          saveRoutesData('routes_saved'); saveRoutesData('route_draft'); updateDraftBadge();
+          haptic.notify('success'); toast('Маршрут сохранён'); renderRoutes();
+        }
+        return;
+      }
+      if (card) { const r = findRoute(card.dataset.route); if (r) showRoute(r); }
+    });
+    $('#route-sheet').addEventListener('click', (e) => {
+      const a = e.target.closest('[data-raction]');
+      const stop = e.target.closest('.route-stop');
+      const r = activeRoute;
+      if (!r) return;
+      if (a) {
+        const x = a.dataset.raction;
+        if (x === 'close') closeSheets();
+        else if (x === 'share') shareRoute(r);
+        else if (x === 'go') { haptic.impact(); openLink(routeGoUrl(routePlaces(r.ids))); }
+        else if (x === 'like') { toggleRouteLike(r.id); renderRouteSheet(); }
+        else if (x === 'keep') {
+          savedRoutes.unshift({ id: 's' + Date.now().toString(36), title: r.title, emoji: '🤝', ids: r.ids.slice() });
+          savedRoutes = savedRoutes.slice(0, 10);
+          saveRoutesData('routes_saved'); haptic.notify('success'); toast('Сохранено в «Маршруты → Мои»');
+        }
+        return;
+      }
+      if (stop) { const p = byId.get(stop.dataset.id); if (p) { haptic.tap(); openPlace(p); } }
+    });
     $('#age-yes').addEventListener('click', () => answerAge(true));
     $('#age-no').addEventListener('click', () => answerAge(false));
     loadCloudAge();
@@ -1261,8 +1622,10 @@
     }
     updateThemeButton();
     updateFavButton();
+    updateDraftBadge();
     loadCloudTheme();
     loadCloudFavs();
+    loadCloudRoutes();
     $('#backdrop').addEventListener('click', () => closeSheets());
     $('#splash-retry').addEventListener('click', () => location.reload());
     $('#place-sheet').addEventListener('click', (e) => {
@@ -1274,6 +1637,7 @@
       else if (a.dataset.action === 'again') lucky();
       else if (a.dataset.action === 'fav' && p) { toggleFav(p); a.outerHTML = favButtonHtml(p); }
       else if (a.dataset.action === 'share' && p) sharePlace(p);
+      else if (a.dataset.action === 'add-route' && p) { toggleDraft(p); a.outerHTML = draftButtonHtml(p); }
       else if (a.dataset.action === 'route' && p) { haptic.impact(); openLink(routeUrl(p)); }
       else if (a.dataset.action === 'site') openLink(a.dataset.url);
       else if (a.dataset.action === 'yandex' && p) { haptic.impact(); openLink(yandexPlaceUrl(p)); }
@@ -1307,9 +1671,16 @@
     hideSplash();
     // Ссылка от друга (startapp=p-<id>) — сразу открываем это место.
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
-    const districtsReady = loadDistrictPlaces().then(() => { render(); syncFilters(); updateFavButton(); });
+    const districtsReady = loadDistrictPlaces().then(() => { render(); syncFilters(); updateFavButton(); updateDraftBadge(); });
     const sp = startParam();
-    if (sp.startsWith('p-')) {
+    if (sp.startsWith('r-') || sp.startsWith('m-')) {
+      // ссылка на маршрут от друга
+      districtsReady.then(() => {
+        const r = routeFromCode(sp);
+        if (r) setTimeout(() => showRoute(r), 300);
+        else toast('Маршрут по ссылке не найден');
+      });
+    } else if (sp.startsWith('p-')) {
       districtsReady.then(() => {
         const shared = byId.get(sp.slice(2));
         if (!shared) return;

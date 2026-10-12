@@ -1,0 +1,33 @@
+// Готовые маршруты — из мест, которые уже есть на карте (places.js и places-districts.js, всё из Яндекс Карт).
+// ids — места по порядку прогулки. Время маршрута считает приложение: дорога пешком + время в каждом месте.
+// adult: true — маршрут с барами, виден только после подтверждения возраста (18+).
+window.ROUTES = [
+  { id: 'patriki', emoji: '🌙', title: 'Вечер на Патриках', desc: 'Пирожные, прогулка вокруг пруда, «нехорошая квартира» и ужин.',
+    ids: ['angel-cakes-patriki', 'patriki', 'bulgakov', 'myaso-ryba'] },
+  { id: 'zamoskvorechye', emoji: '🖼', title: 'Замоскворечье', desc: 'Кофе, Третьяковка, обед в «Граблях» и вид на Кремль с Патриаршего моста.',
+    ids: ['y30202138777', 'tretyakov', 'grabli', 'patriarshy-bridge'] },
+  { id: 'center', emoji: '🏰', title: 'Классика центра', desc: 'Никольская, Красная площадь, советская столовая в ГУМе и парящий мост Зарядья.',
+    ids: ['coffee-buro', 'nikolskaya', 'red-square', 'stolovaya57', 'zaryadye'] },
+  { id: 'gorky', emoji: '🌳', title: 'Музеон, Парк Горького и Нескучный', desc: 'Самая длинная зелёная прогулка вдоль реки — с перекусом и «Гаражом».',
+    ids: ['muzeon', 'gorky', 'restoparking', 'garage', 'neskuchny'] },
+  { id: 'arbat', emoji: '🎨', title: 'Пушкинский и Арбат', desc: 'Импрессионисты, кофе и вареники на Старом Арбате.',
+    ids: ['pushkin-museum', 'y1768734247', 'arbat', 'varenichnaya'] },
+  { id: 'chistye', emoji: '🦢', title: 'Чистые пруды', desc: 'Короткая прогулка: кофе, бульвар с прудом и ужин в «Старике и море».',
+    ids: ['y103335553096', 'chistye', 'starik-i-more'] },
+  { id: 'vdnh', emoji: '🚀', title: 'ВДНХ и космос', desc: 'Фонтаны и павильоны ВДНХ, настоящие спутники в Музее космонавтики.',
+    ids: ['coffeekaldis', 'vdnh', 'cosmonautics', 'y224809917801'] },
+  { id: 'kolomenskoe', emoji: '⛪', title: 'Коломенское', desc: 'Белая церковь над рекой, деревянный дворец и обед в «Айингере».',
+    ids: ['kolomenskoe', 'aleksey-palace', 'y1737406847'] },
+  { id: 'tsaritsyno', emoji: '🏯', title: 'Царицыно', desc: 'Кофе в домике у парка, готический дворец и пруды.',
+    ids: ['y136795371923', 'tsaritsyno', 'y48824601370'] },
+  { id: 'city', emoji: '🌆', title: 'Москва-Сити вечером', desc: 'Набережная у небоскрёбов, смотровая на 89-м этаже и ужин на 85-м.',
+    ids: ['city-embankment', 'panorama360', 'ruski'] },
+  { id: 'vorobyovy', emoji: '🔭', title: 'Воробьёвы горы и Новодевичий', desc: 'Панорама Москвы, спуск к реке и монастырь над прудом.',
+    ids: ['vorobyovy', 'novodevichi-prudy', 'novodevichy', 'flp'] },
+  { id: 'izmailovo', emoji: '🎠', title: 'Измайлово', desc: 'Сказочный деревянный кремль, царская усадьба на острове и обед.',
+    ids: ['izmailovo', 'izmailovo-estate', 'y90327085099'] },
+  { id: 'flacon', emoji: '🏭', title: 'Дизайн-завод «Флакон»', desc: 'Стрит-арт и шоурумы бывшего хрустального завода — с кофе и ужином.',
+    ids: ['y38337248294', 'flacon', 'y22642467915'] },
+  { id: 'dmitrovka', emoji: '🍸', title: 'Вечер на Большой Дмитровке', desc: 'Ужин и три бара в пяти минутах друг от друга. 18+.', adult: true,
+    ids: ['tehnikum', 'y1086371431', 'y1720143855', 'y168523045237'] },
+];

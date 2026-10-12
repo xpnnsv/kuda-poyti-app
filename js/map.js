@@ -109,6 +109,17 @@
       try { this.map.update({ theme: dark ? 'dark' : 'light' }); } catch (e) { /* старые версии API */ }
     },
 
+    // Линия маршрута (пунктир по точкам). coords — [[lat, lon], …] или null, чтобы убрать
+    setLine(coords) {
+      if (this.line) { this.map.removeChild(this.line); this.line = null; }
+      if (!coords || coords.length < 2) return;
+      this.line = new ymaps3.YMapFeature({
+        geometry: { type: 'LineString', coordinates: coords.map(([lat, lon]) => [lon, lat]) },
+        style: { stroke: [{ color: '#ff4059', width: 4, dash: [2, 8] }], zIndex: 5 },
+      });
+      this.map.addChild(this.line);
+    },
+
     setMinZoom(z) {
       this.map.update({ zoomRange: { min: z, max: 21 } });
       if (this.map.zoom < z) this.map.update({ location: { center: this.map.center, zoom: z } });
@@ -179,6 +190,12 @@
     setDark() { /* тема переключается через CSS */ },
 
     setMinZoom(z) { this.map.options.zoomSnap = 0; this.map.setMinZoom(z); },
+
+    setLine(coords) {
+      if (this.line) { this.line.remove(); this.line = null; }
+      if (!coords || coords.length < 2) return;
+      this.line = L.polyline(coords, { color: '#ff4059', weight: 4, dashArray: '2 10', lineCap: 'round', interactive: false }).addTo(this.map);
+    },
   };
 
   // ---------- Общий интерфейс ----------
@@ -211,5 +228,6 @@
     setUser(lat, lon, el) { this.impl.setUser(lat, lon, el); },
     setDark(dark) { this.impl.setDark(dark); },
     setMinZoom(z) { this.impl.setMinZoom(z); },
+    setLine(coords) { try { this.impl.setLine(coords); } catch (e) { console.warn('Линия маршрута:', e); } },
   };
 })();
