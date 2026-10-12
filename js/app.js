@@ -1237,25 +1237,21 @@
     for (const x of new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(d)) p[x.type] = x.value;
     return p;
   };
-  const mskAt = (dayOffset, hour) => { const p = mskParts(new Date()); return new Date(Date.UTC(+p.year, +p.month - 1, +p.day + dayOffset, hour - 3, 0)); };
   const clock = (d) => new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }).format(d);
 
-  function startOptions() {
-    const now = new Date(), p = mskParts(now), h = +p.hour;
-    const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(p.weekday);
-    const opts = [{ v: 'now', label: 'Сейчас', at: () => new Date() }, { v: 'h1', label: 'Через час', at: () => new Date(Date.now() + 3600000) }];
-    if (h < 11) opts.push({ v: 't12', label: 'Сегодня в 12:00', at: () => mskAt(0, 12) });
-    if (h < 18) opts.push({ v: 't19', label: 'Сегодня в 19:00', at: () => mskAt(0, 19) });
-    opts.push({ v: 'tm12', label: 'Завтра в 12:00', at: () => mskAt(1, 12) });
-    opts.push({ v: 'tm19', label: 'Завтра в 19:00', at: () => mskAt(1, 19) });
-    if (wd < 4) opts.push({ v: 'sat', label: 'В субботу в 12:00', at: () => mskAt(5 - wd, 12) });
-    return opts;
+  // «Выхожу через …» — ползунок: шаги в минутах от «сейчас» до суток
+  const START_STEPS = [0, 15, 30, 45, 60, 90].concat(Array.from({ length: 23 }, (_, i) => (i + 2) * 60)); // дальше — каждый час до суток
+  const inText = (m) => (m < 60 ? `${m} мин` : `${String(m / 60).replace('.', ',')} ч`);
+  function startLabel(m) {
+    if (!m) return 'Сейчас';
+    const at = new Date(Date.now() + m * 60000);
+    const sameDay = mskParts(at).day === mskParts(new Date()).day;
+    return `через ${m === 1440 ? 'сутки' : inText(m)} · в ${clock(at)}${sameDay ? '' : ', завтра'}`;
   }
 
   // Для каждой остановки: во сколько придёшь и успеешь ли, пока открыто
   function routeTimeline(r, ps) {
-    const opt = startOptions().find((o) => o.v === r.startAt) || startOptions()[0];
-    let t = opt.at().getTime();
+    let t = Date.now() + (r.startIn || 0) * 60000;
     if (r.fromMe) t += legMin(r.fromMe, ps[0]) * 60000;
     return ps.map((p, i) => {
       if (i) t += legMin(ps[i - 1], p) * 60000;
@@ -1311,16 +1307,13 @@
     MapView.setLine(pts);
   }
 
-  function renderRouteSheet() {
-    const r = activeRoute;
-    const ps = routePlaces(r.ids);
-    const st = routeStats(ps, r.fromMe);
-    const liked = likedRoutes.has(r.id);
+  // Остановки с временем прихода — отдельно, чтобы ползунок «Выхожу через» обновлял только их
+  function routeStopsHtml(r, ps) {
     const meStop = r.fromMe ? `<li class="route-stop route-stop--me"><span class="stop-num stop-num--me">${icon('locate')}</span>
         <span class="stop-name"><b>Ты здесь</b><small>начало маршрута</small></span></li>
         <li class="route-leg">${legMin(r.fromMe, ps[0])} мин пешком</li>` : '';
     const tl = routeTimeline(r, ps);
-    const stops = meStop + ps.map((p, i) => {
+    return meStop + ps.map((p, i) => {
       const leg = i ? `<li class="route-leg">${legMin(ps[i - 1], p)} мин пешком</li>` : '';
       const been = visited.has(p.id);
       return `${leg}<li class="route-stop${been ? ' route-stop--done' : ''}" data-id="${esc(p.id)}">
@@ -1330,7 +1323,15 @@
         <button class="stop-check${been ? ' is-on' : ''}" type="button" data-visit="${esc(p.id)}" aria-pressed="${been}" aria-label="Был здесь">✓</button>
       </li>`;
     }).join('');
-    const opts = startOptions().map((o) => `<option value="${o.v}"${o.v === (r.startAt || 'now') ? ' selected' : ''}>${o.label}</option>`).join('');
+  }
+
+  function renderRouteSheet() {
+    const r = activeRoute;
+    const ps = routePlaces(r.ids);
+    const st = routeStats(ps, r.fromMe);
+    const liked = likedRoutes.has(r.id);
+    const stops = routeStopsHtml(r, ps);
+    const si = Math.max(0, START_STEPS.indexOf(r.startIn || 0));
     const doneCount = r.ids.filter((id) => visited.has(id)).length;
     $('#route-sheet').innerHTML = `
       <div class="sheet-handle"></div>
@@ -1349,8 +1350,13 @@
       </div>
       ${r.desc ? `<p class="place-desc">${esc(r.desc)}</p>` : ''}
       ${routeMetroHtml(ps)}
-      <label class="route-when">Когда идёшь? <select data-rstart>${opts}</select></label>
-      <ol class="route-stops">${stops}</ol>
+      <div class="route-when">
+        <div class="f-label budget-head">Выхожу <b id="start-value">${startLabel(r.startIn || 0)}</b></div>
+        <input class="budget-range" type="range" min="0" max="${START_STEPS.length - 1}" step="1" value="${si}" data-rstart
+          style="--fill:${(si / (START_STEPS.length - 1)) * 100}%" aria-label="Через сколько выходишь">
+        <div class="budget-scale"><span>Сейчас</span><span>Через сутки</span></div>
+      </div>
+      <ol class="route-stops" id="route-stops">${stops}</ol>
       ${doneCount ? `<p class="route-progress">Отмечено ${doneCount} из ${r.ids.length}${doneCount === r.ids.length ? ' — маршрут пройден 🎉' : ''}</p>` : ''}
       <div class="draft-links"><button type="button" data-raction="from-me">${r.fromMe ? 'Начать с первого места' : 'Начать отсюда'}</button></div>
       <p class="place-note">Время — примерное: дорога пешком и сколько обычно проводят в таком месте.</p>
@@ -1967,16 +1973,20 @@
       }
       if (card) { const r = findRoute(card.dataset.route); if (r) showRoute(r); }
     });
-    $('#route-sheet').addEventListener('change', (e) => {
+    $('#route-sheet').addEventListener('input', (e) => {
       if (!e.target.matches('[data-rstart]') || !activeRoute) return;
-      activeRoute.startAt = e.target.value;
+      const m = START_STEPS[+e.target.value];
+      if (m === (activeRoute.startIn || 0)) return;
+      activeRoute.startIn = m;
       haptic.tap();
-      renderRouteSheet();
+      e.target.style.setProperty('--fill', (+e.target.value / (START_STEPS.length - 1)) * 100 + '%');
+      $('#start-value').textContent = startLabel(m);
+      $('#route-stops').innerHTML = routeStopsHtml(activeRoute, routePlaces(activeRoute.ids));
     });
     $('#route-sheet').addEventListener('click', (e) => {
       const visit = e.target.closest('[data-visit]');
       if (visit) { toggleVisited(visit.dataset.visit); renderRouteSheet(); return; }
-      if (e.target.closest('select, label')) return;
+      if (e.target.closest('input, select, label')) return;
       const a = e.target.closest('[data-raction]');
       const stop = e.target.closest('.route-stop');
       const r = activeRoute;
