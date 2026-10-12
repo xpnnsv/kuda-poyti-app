@@ -28,6 +28,15 @@ window.ROUTES = [
     ids: ['izmailovo', 'izmailovo-estate', 'y90327085099'] },
   { id: 'flacon', emoji: '🏭', title: 'Дизайн-завод «Флакон»', desc: 'Стрит-арт и шоурумы бывшего хрустального завода — с кофе и ужином.',
     ids: ['y38337248294', 'flacon', 'y22642467915'] },
+  // Сезонные — видны только в своё время года (season: winter / spring / summer / autumn)
+  { id: 'autumn', season: 'autumn', emoji: '🍂', title: 'Золотая осень у реки', desc: 'Кофе с верандой, старейший парк Москвы и подъём на Воробьёвы горы по набережной.',
+    ids: ['y103299610207', 'neskuchny', 'vorobyovy'] },
+  { id: 'winter', season: 'winter', emoji: '⛸', title: 'Каток и тёплый музей', desc: 'Кофе с собой, каток в Парке Горького, согреться в «Гараже» и ужин.',
+    ids: ['y109506473831', 'gorky', 'garage', 'y7130928751'] },
+  { id: 'spring', season: 'spring', emoji: '🌸', title: 'Весенние сады', desc: 'Оранжереи Аптекарского огорода, старинный сад «Эрмитаж» и ужин на веранде.',
+    ids: ['y109262857078', 'aptekarsky', 'sad-ermitazh', 'schaste'] },
+  { id: 'summer', season: 'summer', emoji: '☀️', title: 'Летний вечер у реки', desc: 'Скульптуры Музеона, «Красный Октябрь», ужин на веранде и закат с Патриаршего моста.',
+    ids: ['muzeon', 'krasny-oktyabr', 'y167970564152', 'patriarshy-bridge'] },
   { id: 'dmitrovka', emoji: '🍸', title: 'Вечер на Большой Дмитровке', desc: 'Ужин и три бара в пяти минутах друг от друга. 18+.', adult: true,
     ids: ['tehnikum', 'y1086371431', 'y1720143855', 'y168523045237'] },
 ];

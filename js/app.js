@@ -98,6 +98,17 @@
     return p.pop ? `${r} · ${p.pop.toLocaleString('ru-RU')} ${plural(p.pop, 'оценка', 'оценки', 'оценок')}` : r;
   }
 
+  // Ближайшая станция метро/МЦК (из Яндекс Карт, js/metro.js): { name, min } или null, если дальше 2,5 км
+  function nearestMetro(p) {
+    let best = null, bestD = Infinity;
+    for (const s of window.METRO || []) {
+      const d = distance(p, { lat: s[1], lon: s[2] });
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    return best && bestD < 2500 ? { name: best[0], min: Math.max(1, Math.round((bestD * 1.3) / 70)) } : null;
+  }
+  const metroHtml = (m) => `<span class="metro-m">М</span>${esc(m.name)} · ${m.min} мин пешком`;
+
   function distanceText(d) {
     const dist = d < 1000 ? `${Math.round(d / 10) * 10} м` : `${(d / 1000).toFixed(1).replace('.', ',')} км`;
     return d < 5000 ? `${dist} · ${Math.max(1, Math.round(d / 75))} мин пешком` : dist;
@@ -627,6 +638,8 @@
   function infoHtml(p, todayHours, site) {
     const rows = [];
     if (p.address) rows.push(`<li>${icon('pin')}<span>${esc(p.address)}${p.district ? `<small class="place-district">${esc(p.district)}</small>` : ''}</span></li>`);
+    const metro = nearestMetro(p);
+    if (metro) rows.push(`<li class="metro-row">${metroHtml(metro)}</li>`);
     if (todayHours) rows.push(`<li>${icon('clock')}<span>Сегодня: ${todayHours}</span></li>`);
     if (site) rows.push(`<li>${icon('globe')}<a href="#" data-action="site" data-url="${esc(site)}">Сайт места</a></li>`);
     return rows.length ? `<ul class="place-info">${rows.join('')}</ul>` : '';
@@ -981,6 +994,13 @@
   // Лайки и сохранённые маршруты пока хранятся у пользователя (телефон + облако Telegram); общий счётчик — на сервере позже.
   const ROUTE_MAX = 10;
   const WALK_M_PER_MIN = 70; // прогулочный шаг, ~4,2 км/ч
+  // Сезон по московскому месяцу: сезонные маршруты видны только в своё время года
+  const SEASON = (() => {
+    const m = +new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', month: 'numeric' }).format(new Date());
+    return m === 12 || m <= 2 ? 'winter' : m <= 5 ? 'spring' : m <= 8 ? 'summer' : 'autumn';
+  })();
+  const SEASON_LABEL = { winter: 'Зима', spring: 'Весна', summer: 'Лето', autumn: 'Осень' };
+  const inSeason = (r) => !r.season || r.season === SEASON;
 
   // Сколько обычно проводят в месте (мин): зависит от типа и «размера» места
   function stayFor(p) {
@@ -1102,10 +1122,16 @@
     const liked = likedRoutes.has(r.id);
     const locked = r.adult && !adultOk;
     const done = routesDone.some((d) => d.id === r.id);
-    return `<div class="route-card${locked ? ' route-card--locked' : ''}" data-route="${kind}:${esc(r.id)}" role="button" tabindex="0">
+    // Обложка — фото первой остановки, у которой оно есть (с автором — так требует лицензия)
+    const coverId = locked ? null : ps.map((p) => p.id).find((id) => (window.PLACE_PHOTOS || {})[id]);
+    const ph = coverId && window.PLACE_PHOTOS[coverId];
+    const cover = ph ? `<div class="route-cover"><img src="${esc(ph.src)}?v=${encodeURIComponent(window.APP_VERSION || '')}" alt="" loading="lazy" decoding="async">
+        <span>Фото: ${esc(ph.author || 'Wikimedia Commons')}${ph.license ? ' · ' + esc(ph.license) : ''}</span></div>` : '';
+    return `<div class="route-card${locked ? ' route-card--locked' : ''}${ph ? ' route-card--cover' : ''}" data-route="${kind}:${esc(r.id)}" role="button" tabindex="0">
+      ${cover}
       <div class="route-top">
         <span class="route-emoji">${r.emoji || '🚶'}</span>
-        <div class="route-title"><b>${esc(r.title)}${r.adult ? AGE_BADGE : ''}</b>
+        <div class="route-title"><b>${esc(r.title)}${r.adult ? AGE_BADGE : ''}${r.season ? `<span class="season-badge">${SEASON_LABEL[r.season]}</span>` : ''}</b>
           <small>${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</small>
           <small class="route-price">${routePriceText(st)}${done ? ' · <span class="route-done">✓ пройден</span>' : ''}</small></div>
         ${kind === 'saved'
@@ -1155,8 +1181,9 @@
       // понравившиеся — сверху; фильтр по времени и цене
       const f = ROUTE_FILTERS.find((x) => x.v === routeFilter);
       const list = READY_ROUTES.slice()
-        .filter((r) => f.test(routeStats(routePlaces(r.ids))))
-        .sort((a, b) => likedRoutes.has(b.id) - likedRoutes.has(a.id));
+        .filter((r) => inSeason(r) && f.test(routeStats(routePlaces(r.ids))))
+        // сезонный — первым, потом понравившиеся
+        .sort((a, b) => (!!b.season - !!a.season) || (likedRoutes.has(b.id) - likedRoutes.has(a.id)));
       const chips = ROUTE_FILTERS.map((x) => `<button type="button" class="seg-btn${x.v === routeFilter ? ' active' : ''}" data-rfilter="${x.v}">${x.label}</button>`).join('');
       body.innerHTML = genFormHtml() + `<div class="seg route-filters">${chips}</div>
         <div class="route-list">${list.length ? list.map((r) => routeCardHtml(r, 'ready')).join('') : '<p class="empty">Под этот фильтр готовых маршрутов нет — попробуй «Собери маршрут за меня».</p>'}</div>
@@ -1264,6 +1291,14 @@
     saveVisited();
   }
 
+  // Метро у старта и финиша маршрута
+  function routeMetroHtml(ps) {
+    const a = nearestMetro(ps[0]), b = nearestMetro(ps[ps.length - 1]);
+    if (!a && !b) return '';
+    if (a && b && a.name === b.name) return `<p class="route-metro">${metroHtml(a)} — у старта и финиша</p>`;
+    return `<p class="route-metro">${a ? `Старт: ${metroHtml(a)}` : ''}${a && b ? '<br>' : ''}${b ? `Финиш: ${metroHtml(b)}` : ''}</p>`;
+  }
+
   function drawRouteLine() {
     const r = activeRoute;
     const pts = routePlaces(r.ids).map((p) => [p.lat, p.lon]);
@@ -1308,6 +1343,7 @@
         </div>
       </div>
       ${r.desc ? `<p class="place-desc">${esc(r.desc)}</p>` : ''}
+      ${routeMetroHtml(ps)}
       <label class="route-when">Когда идёшь? <select data-rstart>${opts}</select></label>
       <ol class="route-stops">${stops}</ol>
       ${doneCount ? `<p class="route-progress">Отмечено ${doneCount} из ${r.ids.length}${doneCount === r.ids.length ? ' — маршрут пройден 🎉' : ''}</p>` : ''}
