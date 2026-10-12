@@ -74,11 +74,13 @@
     if (p.kind === 'mall') return 'Вход свободный';
     if (p.free) return 'Бесплатно';
     if (p.metro) return 'Вход по билету на метро';
-    return 'Цена — в Яндекс Картах';
+    return p.cat === 'museum' || p.cat === 'photo' ? 'Цена входа неизвестна' : 'Средний чек неизвестен';
   }
+  const priceUnknown = (p) => minPrice(p) === null;
 
   // Минимальная цена для фильтра «Бюджет»: «600–800 ₽» → 600, «от 499 ₽» → 499, «до 2000 ₽» → 2000.
-  // null — цена неизвестна, такое место при включённом фильтре бюджета не показываем.
+  // null — цена неизвестна: такое место показываем при любом бюджете с пометкой «Средний чек неизвестен»,
+  // но не в режиме «Только бесплатное» (мы не знаем, что там бесплатно).
   function minPrice(p) {
     if (p.free || p.kind === 'mall') return 0;
     const s = p.bill || p.tickets || p.cup;
@@ -305,7 +307,7 @@
   function passesFilters(p) {
     if (state.budget !== null) {
       const m = minPrice(p);
-      if (m === null || m > state.budget) return false;
+      if (m === null ? state.budget === 0 : m > state.budget) return false;
     }
     if (state.setting !== 'any' && p.setting !== state.setting && p.setting !== 'both') return false;
     if (state.openNow && Hours.status(p.hours).state !== 'open') return false;
@@ -680,7 +682,7 @@
       </div>
       <div class="tags">
         <span class="tag tag--${st.state}">${st.text}</span>
-        <span class="tag">${priceText(p)}</span>
+        <span class="tag${priceUnknown(p) ? ' tag--unknown' : ''}">${priceText(p)}</span>
         <span class="tag">${SETTING_TEXT[p.setting] || ''}</span>
         ${d !== null ? `<span class="tag">${distanceText(d)}</span>` : ''}
       </div>
@@ -782,7 +784,7 @@
     const sub = note || p.address;
     return `<button class="row" type="button" data-id="${esc(p.id)}">
       <span class="row-icon cat--${p.cat}">${icon(p.cat)}</span>
-      <span class="row-text"><b>${q ? highlight(p.name, q) : esc(p.name)}</b><small>${p.rating ? `<span class="row-rating">★ ${p.rating.toFixed(1).replace('.', ',')}</span> · ` : ''}${esc(catLabel(p))}${sub ? ' · ' + esc(sub) : ''}</small></span>
+      <span class="row-text"><b>${q ? highlight(p.name, q) : esc(p.name)}</b><small>${p.rating ? `<span class="row-rating">★ ${p.rating.toFixed(1).replace('.', ',')}</span> · ` : ''}${esc(catLabel(p))}${sub ? ' · ' + esc(sub) : ''}${state.budget !== null && priceUnknown(p) ? ' · <span class="row-unknown">чек неизвестен</span>' : ''}</small></span>
       ${st === 'unknown' ? '' : `<span class="row-state row-state--${st}">${st === 'open' ? 'Открыто' : 'Закрыто'}</span>`}
     </button>`;
   }

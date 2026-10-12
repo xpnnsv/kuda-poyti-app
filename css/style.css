@@ -732,6 +732,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .row-text small { color: var(--hint); font-size: 12.5px; font-weight: 600; }
 .row-text mark { background: none; color: var(--accent-ink); }
 .row-rating { color: #d99a00; font-weight: 800; }
+.row-unknown { font-style: italic; }
 :root[data-theme="dark"] .row-rating { color: #ffc94d; }
 .row-state { flex: none; font-size: 12px; font-weight: 700; }
 .row-state--open { color: var(--open); }
