@@ -2138,6 +2138,9 @@
       });
     } else if (sp === 'lucky' || new URLSearchParams(location.search).get('lucky') === '1') {
       districtsReady.then(() => setTimeout(lucky, 900));
+    } else if (sp === 'routes' || new URLSearchParams(location.search).get('routes') === '1') {
+      // кнопка «🚶 Маршруты» в приветствии бота — сразу открываем список маршрутов
+      districtsReady.then(() => setTimeout(() => openRoutes('ready'), 400));
     }
   }
 
