@@ -978,8 +978,45 @@
   // ---------- Маршруты ----------
   // Готовые маршруты (routes.js) и свой: «＋ В маршрут» в карточке места. Время = дорога пешком + время в местах.
   // Лайки и сохранённые маршруты пока хранятся у пользователя (телефон + облако Telegram); общий счётчик — на сервере позже.
-  const STAY_MIN = { coffee: 30, food: 60, photo: 40, museum: 90, mall: 60, night: 90 };
   const ROUTE_MAX = 10;
+  const WALK_M_PER_MIN = 70; // прогулочный шаг, ~4,2 км/ч
+
+  // Сколько обычно проводят в месте (мин): зависит от типа и «размера» места
+  function stayFor(p) {
+    const desc = (p.desc || '') + ' ' + p.name;
+    switch (p.cat) {
+      case 'coffee': return 25;
+      case 'food': {
+        if (/Быстрое питание|Столовая|Шаурма|Пекарня/i.test(desc)) return 40;
+        const lo = priceRange(p);
+        return lo && lo[0] >= 2000 ? 90 : 60;
+      }
+      case 'museum': return p.pop >= 40000 ? 120 : p.pop >= 15000 ? 90 : 60; // Третьяковка — 2 ч, Булгаков — 1 ч
+      case 'photo': return p.pop >= 50000 || /парк|сад|усадьб|заповедник|ВДНХ|Выставка/i.test(desc) && p.pop >= 15000 ? 60 : 30;
+      case 'mall': return p.kind === 'food_court' ? 45 : 60;
+      case 'night': return 60;
+      default: return 40;
+    }
+  }
+  const stayText = (m) => (m >= 60 ? `${String(m / 60).replace('.', ',')} ч` : `${m} мин`);
+
+  // Цена на человека «от–до» по данным Яндекса: [от, до] или null, если неизвестна
+  function priceRange(p) {
+    if (p.free || p.kind === 'mall') return [0, 0];
+    const s = p.bill || p.tickets || p.cup;
+    if (!s) return null;
+    const nums = (s.replace(/(\d)\s(?=\d)/g, '$1').match(/\d+/g) || []).map(Number);
+    if (!nums.length) return null;
+    if (/^до\s/i.test(s)) return [Math.round(nums[0] / 2), nums[0]];
+    return [nums[0], nums[nums.length - 1]];
+  }
+
+  const rub = (n) => Math.round(n / 50) * 50; // до 50 ₽ — точнее всё равно не бывает
+  function priceText2(lo, hi) {
+    const f = (n) => rub(n).toLocaleString('ru-RU');
+    if (hi === 0) return 'бесплатно';
+    return rub(lo) === rub(hi) ? `≈ ${f(hi)} ₽` : `≈ ${f(lo)}–${f(hi)} ₽`;
+  }
   const READY_ROUTES = window.ROUTES || [];
   let draft = [];          // id мест «моего маршрута» по порядку
   let savedRoutes = [];    // [{ id, title, ids }]
@@ -1014,17 +1051,35 @@
 
   const routePlaces = (ids) => ids.map((id) => byId.get(id)).filter(Boolean);
 
-  function routeStats(ps) {
-    let m = 0;
-    for (let i = 1; i < ps.length; i++) m += distance(ps[i - 1], ps[i]) * 1.3; // улицы не прямые — запас 30%
-    const walk = Math.round(m / 75);
-    const stay = ps.reduce((s, p) => s + (STAY_MIN[p.cat] || 40), 0);
-    return { km: m / 1000, walk, total: walk + stay };
+  // Цена одной остановки для списка: « · 500–700 ₽», « · бесплатно» или ничего
+  function stopPrice(p) {
+    const r = priceRange(p);
+    if (!r) return '';
+    return ' · ' + priceText2(r[0], r[1]).replace('≈ ', '');
   }
+
+  const legMin = (a, b) => Math.max(1, Math.round((distance(a, b) * 1.3) / WALK_M_PER_MIN)); // улицы не прямые — +30%
+
+  function routeStats(ps) {
+    let m = 0, walk = 0, lo = 0, hi = 0, unknown = 0;
+    for (let i = 1; i < ps.length; i++) { m += distance(ps[i - 1], ps[i]) * 1.3; walk += legMin(ps[i - 1], ps[i]); }
+    for (const p of ps) {
+      const r = priceRange(p);
+      if (r) { lo += r[0]; hi += r[1]; } else unknown++;
+    }
+    const stay = ps.reduce((s, p) => s + stayFor(p), 0);
+    return { km: m / 1000, walk, total: walk + stay, lo, hi, unknown };
+  }
+  // Время округляем до 15 минут: «~3 ч 45 мин»
   function durText(min) {
-    const h = Math.floor(min / 60), mm = Math.round((min % 60) / 5) * 5;
-    if (!h) return `~${Math.max(5, mm)} мин`;
-    return mm === 60 ? `~${h + 1} ч` : `~${h} ч${mm ? ' ' + mm + ' мин' : ''}`;
+    if (min < 50) return `~${Math.max(10, Math.round(min / 10) * 10)} мин`;
+    const q = Math.round(min / 15) * 15, h = Math.floor(q / 60), mm = q % 60;
+    return `~${h} ч${mm ? ' ' + mm + ' мин' : ''}`;
+  }
+  function routePriceText(st) {
+    const known = st.hi > 0 || st.unknown === 0 ? priceText2(st.lo, st.hi) : '';
+    if (!st.unknown) return known === 'бесплатно' ? 'бесплатно' : `${known} на человека`;
+    return known ? `${known} + где-то цена неизвестна` : 'цена неизвестна';
   }
   const kmText = (km) => (km < 1 ? `${Math.max(10, Math.round((km * 1000) / 10) * 10)} м` : `${km.toFixed(1).replace('.', ',')} км`);
   const placesWord = (n) => `${n} ${plural(n, 'место', 'места', 'мест')}`;
@@ -1045,7 +1100,8 @@
       <div class="route-top">
         <span class="route-emoji">${r.emoji || '🚶'}</span>
         <div class="route-title"><b>${esc(r.title)}${r.adult ? AGE_BADGE : ''}</b>
-          <small>${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</small></div>
+          <small>${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</small>
+          <small class="route-price">${routePriceText(st)}</small></div>
         ${kind === 'saved'
           ? `<button class="icon-btn" type="button" data-del="${esc(r.id)}" aria-label="Удалить маршрут">${icon('close')}</button>`
           : `<button class="icon-btn${liked ? ' is-fav' : ''}" type="button" data-like="${esc(r.id)}" aria-pressed="${liked}" aria-label="Нравится">${icon(liked ? 'heart-fill' : 'heart')}</button>`}
@@ -1064,13 +1120,14 @@
     const st = routeStats(ps);
     const stops = ps.map((p, i) => `<li class="draft-stop">
         <span class="stop-num cat--${p.cat}">${i + 1}</span>
-        <span class="stop-name"><b>${esc(p.name)}</b><small>${esc(catLabel(p))} · ${STAY_MIN[p.cat] || 40} мин</small></span>
+        <span class="stop-name"><b>${esc(p.name)}</b><small>${esc(catLabel(p))} · ~${stayText(stayFor(p))}${stopPrice(p)}</small></span>
         <button class="icon-btn" type="button" data-move="${i}:-1" aria-label="Выше" ${i === 0 ? 'disabled' : ''}>${icon('up')}</button>
         <button class="icon-btn" type="button" data-move="${i}:1" aria-label="Ниже" ${i === ps.length - 1 ? 'disabled' : ''}>${icon('down')}</button>
         <button class="icon-btn" type="button" data-remove="${i}" aria-label="Убрать">${icon('close')}</button>
       </li>`).join('');
     return `<div class="draft">
       <div class="section-title">Мой маршрут <small>${ps.length > 1 ? `${durText(st.total)} · ${kmText(st.km)} пешком` : 'добавь ещё хотя бы одно место'}</small></div>
+      ${ps.length > 1 ? `<div class="route-price draft-price">${routePriceText(st)}</div>` : ''}
       <ol class="draft-list">${stops}</ol>
       <div class="draft-actions">
         <button class="btn btn-primary" type="button" data-draft="show" ${ps.length < 2 ? 'disabled' : ''}>Показать на карте</button>
@@ -1134,11 +1191,11 @@
     const st = routeStats(ps);
     const liked = likedRoutes.has(r.id);
     const stops = ps.map((p, i) => {
-      const leg = i ? `<li class="route-leg">${Math.max(1, Math.round((distance(ps[i - 1], p) * 1.3) / 75))} мин пешком</li>` : '';
+      const leg = i ? `<li class="route-leg">${legMin(ps[i - 1], p)} мин пешком</li>` : '';
       const s = Hours.status(p.hours).state;
       return `${leg}<li class="route-stop" data-id="${esc(p.id)}">
         <span class="stop-num cat--${p.cat}">${i + 1}</span>
-        <span class="stop-name"><b>${esc(p.name)}</b><small>${esc(catLabel(p))} · ~${STAY_MIN[p.cat] || 40} мин${s === 'closed' ? ' · <span class="stop-closed">сейчас закрыто</span>' : ''}</small></span>
+        <span class="stop-name"><b>${esc(p.name)}</b><small>${esc(catLabel(p))} · ~${stayText(stayFor(p))}${stopPrice(p)}${s === 'closed' ? ' · <span class="stop-closed">сейчас закрыто</span>' : ''}</small></span>
       </li>`;
     }).join('');
     $('#route-sheet').innerHTML = `
@@ -1148,6 +1205,7 @@
           <div class="place-cat">${icon('route')}Маршрут${r.adult ? AGE_BADGE : ''}</div>
           <h2>${r.emoji ? r.emoji + ' ' : ''}${esc(r.title)}</h2>
           <div class="place-full">${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</div>
+          <div class="route-price">${routePriceText(st)}</div>
         </div>
         <div class="head-actions">
           <button class="icon-btn" type="button" data-raction="share" aria-label="Поделиться маршрутом">${icon('share')}</button>
