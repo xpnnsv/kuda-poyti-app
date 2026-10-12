@@ -1005,7 +1005,8 @@
   const inSeason = (r) => !r.season || r.season === SEASON;
 
   // Сколько обычно проводят в месте (мин): зависит от типа и «размера» места
-  function stayFor(p) {
+  function stayFor(p, r) {
+    if (r && r.stay && r.stay[p.id]) return r.stay[p.id]; // у готового маршрута может быть своё время (короткая прогулка)
     const desc = (p.desc || '') + ' ' + p.name;
     switch (p.cat) {
       case 'coffee': return 25;
@@ -1086,7 +1087,7 @@
 
   const legMin = (a, b) => Math.max(1, Math.round((distance(a, b) * 1.3) / WALK_M_PER_MIN)); // улицы не прямые — +30%
 
-  function routeStats(ps, from) {
+  function routeStats(ps, from, route) {
     let m = 0, walk = 0, lo = 0, hi = 0, unknown = 0;
     if (from && ps.length) { m += distance(from, ps[0]) * 1.3; walk += legMin(from, ps[0]); }
     for (let i = 1; i < ps.length; i++) { m += distance(ps[i - 1], ps[i]) * 1.3; walk += legMin(ps[i - 1], ps[i]); }
@@ -1094,7 +1095,7 @@
       const r = priceRange(p);
       if (r) { lo += r[0]; hi += r[1]; } else unknown++;
     }
-    const stay = ps.reduce((s, p) => s + stayFor(p), 0);
+    const stay = ps.reduce((s, p) => s + stayFor(p, route), 0);
     return { km: m / 1000, walk, total: walk + stay, lo, hi, unknown };
   }
   // Время округляем до 15 минут: «~3 ч 45 мин»
@@ -1120,7 +1121,7 @@
   function routeCardHtml(r, kind) {
     const ps = routePlaces(r.ids);
     if (ps.length < 2) return '';
-    const st = routeStats(ps);
+    const st = routeStats(ps, null, r);
     const liked = likedRoutes.has(r.id);
     const locked = r.adult && !adultOk;
     const done = routesDone.some((d) => d.id === r.id);
@@ -1256,7 +1257,7 @@
     return ps.map((p, i) => {
       if (i) t += legMin(ps[i - 1], p) * 60000;
       const arrive = new Date(t);
-      const stay = stayFor(p);
+      const stay = stayFor(p, r);
       const left = Hours.minutesLeft(p.hours, arrive);
       let warn = '';
       if (left === 0) {
@@ -1318,7 +1319,7 @@
       const been = visited.has(p.id);
       return `${leg}<li class="route-stop${been ? ' route-stop--done' : ''}" data-id="${esc(p.id)}">
         <span class="stop-num cat--${p.cat}">${i + 1}</span>
-        <span class="stop-name"><b>${esc(p.name)}</b><small>в ${tl[i].arrive} · ~${stayText(stayFor(p))}${stopPrice(p)}</small>
+        <span class="stop-name"><b>${esc(p.name)}</b><small>в ${tl[i].arrive} · ~${stayText(stayFor(p, r))}${stopPrice(p)}</small>
           ${tl[i].warn ? `<small class="stop-closed">${tl[i].warn}</small>` : ''}</span>
         <button class="stop-check${been ? ' is-on' : ''}" type="button" data-visit="${esc(p.id)}" aria-pressed="${been}" aria-label="Был здесь">✓</button>
       </li>`;
@@ -1328,7 +1329,7 @@
   function renderRouteSheet() {
     const r = activeRoute;
     const ps = routePlaces(r.ids);
-    const st = routeStats(ps, r.fromMe);
+    const st = routeStats(ps, r.fromMe, r);
     const liked = likedRoutes.has(r.id);
     const stops = routeStopsHtml(r, ps);
     const si = Math.max(0, START_STEPS.indexOf(r.startIn || 0));
@@ -1394,7 +1395,7 @@
     if (!code) { toast('Поделиться ссылкой можно маршрутом до 6 мест — для длинных скоро сделаем'); return; }
     const ps = routePlaces(r.ids);
     const link = `https://t.me/${cfg.BOT_USERNAME}?startapp=${code}`;
-    const text = `Пойдём? Маршрут «${r.title}»: ${durText(routeStats(ps).total)}, ${placesWord(ps.length)} — ${ps.map((p) => p.name).join(' → ')}`;
+    const text = `Пойдём? Маршрут «${r.title}»: ${durText(routeStats(ps, null, r).total)}, ${placesWord(ps.length)} — ${ps.map((p) => p.name).join(' → ')}`;
     haptic.impact();
     if (inTelegram) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
     else if (navigator.share) navigator.share({ title: r.title, text, url: link }).catch(() => {});
@@ -1558,7 +1559,7 @@
   function routeMatches(r) {
     const ps = routePlaces(r.ids);
     if (ps.length < 2) return false;
-    const st = routeStats(ps);
+    const st = routeStats(ps, null, r);
     if (rf.budget !== null) {
       if (rf.budget === 0 ? st.hi > 0 || st.unknown > 0 : (st.lo + st.hi) / 2 > rf.budget) return false;
     }
