@@ -33,7 +33,7 @@
   const SETTING_TEXT = { outdoor: 'На улице', indoor: 'В помещении', both: 'Улица и помещение' };
 
   const state = {
-    cat: 'all',
+    cats: new Set(), // выбранные категории; пусто — «Все»
     budget: null,
     setting: 'any',
     openNow: false,
@@ -301,7 +301,7 @@
   function matches(p) {
     if (p.cat === 'night' && !adultOk) return false; // бары — только после подтверждения возраста
     if (state.collection && !state.collection.set.has(p.id)) return false;
-    if (state.cat !== 'all' && p.cat !== state.cat) return false;
+    if (state.cats.size && !state.cats.has(p.cat)) return false;
     return passesFilters(p);
   }
 
@@ -367,6 +367,9 @@
     return fallback === 'all' ? 'food' : fallback;
   }
 
+  // Одна выбранная категория (для живого поиска Яндекса) или 'all'
+  const oneCat = () => (state.cats.size === 1 ? [...state.cats][0] : 'all');
+
   let liveBusy = false;
   async function liveSearch() {
     if (liveBusy || !state.view) return;
@@ -377,7 +380,7 @@
     const b = state.view.bounds;
     const params = new URLSearchParams({
       apikey: cfg.PLACES_API_KEY.trim(),
-      text: LIVE_QUERY[state.cat] || 'кафе',
+      text: LIVE_QUERY[oneCat()] || 'кафе',
       lang: 'ru_RU',
       type: 'biz',
       results: '50',
@@ -396,7 +399,7 @@
           id: 'live-' + m.id,
           ym: m.id,
           name: m.name || f.properties.name,
-          cat: catFromYandex(cats, state.cat),
+          cat: catFromYandex(cats, oneCat()),
           setting: 'indoor',
           hours: hoursFromYandex(m.Hours),
           address: (m.address || f.properties.description || '').replace(/^Россия,\s*/, '').replace(/^Москва,\s*/, ''),
@@ -488,7 +491,7 @@
     pts.sort((a, c) => (c.inView - a.inView) || (c.prio - a.prio));
 
     // Порог — только в режиме «Все»: если выбрана категория, показываем её места сразу (без наложений)
-    const minP = state.cat === 'all' && !state.collection ? minPriority(view.zoom) : 0;
+    const minP = !state.cats.size && !state.collection ? minPriority(view.zoom) : 0;
     // В подборке мест немного — показываем их все, даже если метки накладываются (например, башни Сити)
     const gap = state.collection ? 0 : GAP;
     const shown = [];
@@ -746,7 +749,7 @@
 
   function lucky() {
     // Бары (18+) выпадают, только если человек сам выбрал эту категорию
-    const pool = narrow(allPlaces().filter((p) => matches(p) && (p.cat !== 'night' || state.cat === 'night')));
+    const pool = narrow(allPlaces().filter((p) => matches(p) && (p.cat !== 'night' || state.cats.has('night'))));
     if (!pool.length) {
       haptic.notify('error');
       toast('Под такие фильтры ничего нет — попробуй их смягчить');
@@ -950,7 +953,7 @@
     if (!c) return;
     haptic.tap();
     state.collection = c;
-    state.cat = 'all';
+    state.cats.clear();
     syncChips();
     closeSheets();
     $('#chips').hidden = true;
@@ -1078,21 +1081,29 @@
     box.addEventListener('click', (e) => {
       const b = e.target.closest('.chip');
       if (!b) return;
-      const pick = () => {
-        state.cat = b.dataset.cat;
+      const cat = b.dataset.cat;
+      // Можно выбрать несколько категорий сразу; «Все» сбрасывает выбор
+      const apply = () => {
+        if (cat === 'all') state.cats.clear();
+        else if (state.cats.has(cat)) state.cats.delete(cat);
+        else state.cats.add(cat);
+        // выбраны все категории — это то же самое, что «Все»
+        if (state.cats.size === Object.keys(CATS).length) state.cats.clear();
         haptic.tap();
         syncChips();
         render();
-        b.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        syncFilters();
       };
-      if (CATS[b.dataset.cat] && CATS[b.dataset.cat].adult) askAdult().then((ok) => ok && pick());
-      else pick();
+      const adding = cat !== 'all' && !state.cats.has(cat);
+      if (adding && CATS[cat].adult) askAdult().then((ok) => ok && apply());
+      else apply();
     });
     syncChips();
   }
 
   function syncChips() {
-    document.querySelectorAll('.chip').forEach((b) => b.classList.toggle('active', b.dataset.cat === state.cat));
+    document.querySelectorAll('.chip').forEach((b) => b.classList.toggle('active',
+      b.dataset.cat === 'all' ? !state.cats.size : state.cats.has(b.dataset.cat)));
   }
 
   function segment(sel, options, key) {
