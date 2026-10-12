@@ -21,10 +21,10 @@ window.PLACE_PHOTOS = {
                   "page":  "https://commons.wikimedia.org/wiki/File:Arbat_Street_in_MSK.jpg"
               },
     "cosmonautics":  {
-                         "src":  "img/places/cosmonautics.webp",
-                         "author":  "Armael",
-                         "license":  "CC0",
-                         "page":  "https://commons.wikimedia.org/wiki/File:Belka_(2011).JPG"
+                         "src":  "img/places/cosmonautics.jpg",
+                         "author":  "Александровы АГ",
+                         "license":  "CC BY-SA 4.0",
+                         "page":  "https://commons.wikimedia.org/wiki/File:7359._Moscow._Memorial_Museum_of_Cosmonautics.jpg"
                      },
     "chistye":  {
                     "src":  "img/places/chistye.webp",
@@ -195,10 +195,10 @@ window.PLACE_PHOTOS = {
                      "page":  "https://commons.wikimedia.org/wiki/File:Zaryadye25.jpg"
                  },
     "aptekarsky":  {
-                       "src":  "img/places/aptekarsky.webp",
-                       "author":  "Humanitas2016",
+                       "src":  "img/places/aptekarsky.jpg",
+                       "author":  "NiaPol",
                        "license":  "CC BY-SA 4.0",
-                       "page":  "https://commons.wikimedia.org/wiki/File:%D0%90%D0%BF%D1%82%D0%B5%D0%BA%D0%B0%D1%80%D1%81%D0%BA%D0%B8%D0%B9_%D0%BE%D0%B3%D0%BE%D1%80%D0%BE%D0%B4_2017.jpg"
+                       "page":  "https://commons.wikimedia.org/wiki/File:Apothecary_garden_%D0%90%D0%BF%D1%82%D0%B5%D0%BA%D0%B0%D1%80%D1%81%D0%BA%D0%B8%D0%B9_%D0%BE%D0%B3%D0%BE%D1%80%D0%BE%D0%B4_1.jpg"
                    },
     "vorobyovy":  {
                       "src":  "img/places/vorobyovy.webp",

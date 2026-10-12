@@ -23,6 +23,7 @@
   --c-museum: #8f72d6;
   --c-photo: #2fa58f;
   --c-mall: #5f7fe0;
+  --c-night: #b23a8c;
 
   --open: #23905f;
   --closed: #d9304b;
@@ -400,6 +401,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .mk--museum { --c: var(--c-museum); }
 .mk--photo { --c: var(--c-photo); }
 .mk--mall { --c: var(--c-mall); }
+.mk--night { --c: var(--c-night); }
 
 /* Сердечко у меток из избранного */
 .mk-fav {
@@ -695,6 +697,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .cat--museum { --c: var(--c-museum); }
 .cat--photo { --c: var(--c-photo); }
 .cat--mall { --c: var(--c-mall); }
+.cat--night { --c: var(--c-night); }
+
+/* Пометка «18+» у баров и кальянных */
+.age-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 15px;
+  opacity: 0.75;
+}
 
 /* ---------- Карточка места ---------- */
 .place-photo {

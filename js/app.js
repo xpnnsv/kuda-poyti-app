@@ -10,7 +10,9 @@
     museum: { label: 'Музеи' },
     photo: { label: 'Красивые места' },
     mall: { label: 'ТЦ и фудкорты' },
+    night: { label: 'Бары и кальянные', short: 'Бары', adult: true },
   };
+  const AGE_BADGE = '<span class="age-badge">18+</span>';
   // Иконка из набора в app.html (<symbol id="i-…">)
   const icon = (name, cls) => `<svg class="ic${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
   const catLabel = (p) => (p.kind === 'food_court' ? 'Фудкорт' : p.kind === 'mall' ? 'Торговый центр' : CATS[p.cat].label);
@@ -279,7 +281,7 @@
 
   // ---------- Живой поиск: «API поиска по организациям» Яндекса ----------
   // Ищет в видимой части карты по выбранной категории. Результаты не сохраняются — только показываются.
-  const LIVE_QUERY = { all: 'кафе', coffee: 'кофейня', food: 'ресторан', museum: 'музей', photo: 'достопримечательность', mall: 'торговый центр' };
+  const LIVE_QUERY = { all: 'кафе', coffee: 'кофейня', food: 'ресторан', museum: 'музей', photo: 'достопримечательность', mall: 'торговый центр', night: 'бар' };
   const DAY_KEYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const OSM_DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 
@@ -415,7 +417,7 @@
   const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
   // У ТЦ оценок на порядок больше, чем у парков и музеев, — без весов издалека карта состояла бы
   // из одних торговых центров. Для прогулок важнее красивые места и музеи.
-  const CAT_WEIGHT = { photo: 2.5, museum: 2, coffee: 1.5, food: 1, mall: 0.5 };
+  const CAT_WEIGHT = { photo: 2.5, museum: 2, coffee: 1.5, food: 1, night: 1, mall: 0.5 };
   const priority = (p) => (p.pop || 0) * (CAT_WEIGHT[p.cat] || 1);
   // Порог важности по масштабу: издалека — только самые известные места, с 14-го масштаба — всё
   const minPriority = (z) => (z < 10.5 ? 100000 : z < 11.5 ? 40000 : z < 12.5 ? 15000 : z < 13.5 ? 5000 : 0);
@@ -621,7 +623,7 @@
       ${photoHtml(p)}
       <div class="place-head">
         <div class="place-title">
-          <div class="place-cat cat--${p.cat}">${icon(p.cat)}${catLabel(p)}</div>
+          <div class="place-cat cat--${p.cat}">${icon(p.cat)}${catLabel(p)}${CATS[p.cat].adult ? AGE_BADGE : ''}</div>
           <h2>${esc(p.name)}</h2>
           ${p.fullName ? `<div class="place-full">${esc(p.fullName)}</div>` : ''}
           ${p.note ? `<div class="place-full">${esc(p.note)}</div>` : ''}
@@ -699,7 +701,8 @@
   }
 
   function lucky() {
-    const pool = narrow(allPlaces().filter(matches));
+    // Бары (18+) выпадают, только если человек сам выбрал эту категорию
+    const pool = narrow(allPlaces().filter((p) => matches(p) && (p.cat !== 'night' || state.cat === 'night')));
     if (!pool.length) {
       haptic.notify('error');
       toast('Под такие фильтры ничего нет — попробуй их смягчить');
@@ -854,6 +857,7 @@
     { v: 'coffee', label: 'Кофе' },
     { v: 'food', label: 'Еда' },
     { v: 'photo', label: 'Красиво' },
+    { v: 'night', label: 'Бары 18+' },
     { v: 'all', label: 'Всё' },
   ];
   let nearTab = 'coffee';
@@ -863,7 +867,7 @@
     document.querySelectorAll('#near-tabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.v === nearTab));
     if (!nearFrom) return;
     const list = curated
-      .filter((p) => (nearTab === 'all' || p.cat === nearTab) && passesFilters(p))
+      .filter((p) => (nearTab === 'all' ? p.cat !== 'night' : p.cat === nearTab) && passesFilters(p))
       .map((p) => ({ p, d: distance(nearFrom, p) }))
       .sort((a, b) => a.d - b.d)
       .slice(0, 20);
@@ -1021,10 +1025,10 @@
 
   // ---------- Чипсы категорий и фильтры ----------
   function buildChips() {
-    const list = [{ id: 'all', label: 'Все' }].concat(Object.keys(CATS).map((id) => ({ id, label: CATS[id].label })));
+    const list = [{ id: 'all', label: 'Все' }].concat(Object.keys(CATS).map((id) => ({ id, label: CATS[id].short || CATS[id].label, adult: CATS[id].adult })));
     const box = $('#chips');
     box.innerHTML = list.map((c) =>
-      `<button type="button" class="chip cat--${c.id}" data-cat="${c.id}">${icon(c.id)}${c.label}</button>`
+      `<button type="button" class="chip cat--${c.id}" data-cat="${c.id}">${icon(c.id)}${c.label}${c.adult ? AGE_BADGE : ''}</button>`
     ).join('');
     box.addEventListener('click', (e) => {
       const b = e.target.closest('.chip');
