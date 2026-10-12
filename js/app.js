@@ -477,16 +477,31 @@
   // Порог важности по масштабу: издалека — только самые известные места, с 14-го масштаба — всё
   const minPriority = (z) => (z < 10.5 ? 100000 : z < 11.5 ? 40000 : z < 12.5 ? 15000 : z < 13.5 ? 5000 : 0);
 
+  // Размер карты запоминаем, а не читаем при каждой раскладке: чтение clientWidth сразу после
+  // правок DOM заставляет браузер посреди кадра заново считать вёрстку всей страницы
+  let mapSize = null;
+  function getMapSize() {
+    if (!mapSize) {
+      const el = $('#map');
+      mapSize = { w: el.clientWidth || window.innerWidth, h: el.clientHeight || window.innerHeight };
+    }
+    return mapSize;
+  }
+  if (window.ResizeObserver) new ResizeObserver(() => { mapSize = null; }).observe($('#map'));
+  else window.addEventListener('resize', () => { mapSize = null; });
+
+  // Слабый телефон (до 4 ГБ памяти или до 4 ядер) — меньше меток и подписей: карта двигается плавнее
+  const LOW_END = (navigator.deviceMemory && navigator.deviceMemory <= 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
+
   function layout(places, view) {
-    const mapEl = $('#map');
-    const w = mapEl.clientWidth || window.innerWidth, h = mapEl.clientHeight || window.innerHeight;
+    const { w, h } = getMapSize();
     const b = view.bounds;
     const mN = merc(b.north), mS = merc(b.south);
     const far = view.zoom < 13.5;
     const R = far ? 13 : 19;                 // радиус метки, px
     const GAP = far ? 32 : 46;               // минимальное расстояние между центрами меток, px
-    const MAX_MARKERS = 70;                  // больше меток телефону рисовать тяжело
-    const MAX_LABELS = 30;
+    const MAX_MARKERS = LOW_END ? 45 : 70;   // больше меток телефону рисовать тяжело
+    const MAX_LABELS = LOW_END ? 18 : 30;
     const sel = state.selected;
 
     const pts = [];
@@ -545,8 +560,12 @@
       if (n) el.dataset.num = n;
       return { id: s.p.id, lat: s.p.lat, lon: s.p.lon, el, z: s.selected ? 1000 : Math.min(999, Math.round(Math.log10((s.p.pop || 0) + 1) * 100)) };
     });
-    for (const [id, el] of markerEls) el.classList.toggle('mk--active', !!sel && sel.id === id);
     MapView.setMarkers(items);
+    // Кэш меток не растёт бесконечно: за долгую прогулку по карте набегали бы тысячи элементов
+    if (markerEls.size > 400) {
+      const keep = new Set(items.map((it) => it.id));
+      for (const id of markerEls.keys()) if (!keep.has(id)) markerEls.delete(id);
+    }
     updatePill(places.length, inView, shownInView);
   }
 
@@ -836,7 +855,9 @@
     rest: norm([(p.cuisine || []).join(' '), (p.eat || []).join(' '), (p.fun || []).map((f) => f[0]).join(' '),
       p.address, p.district, catLabel(p), p.desc].join(' ')),
   });
-  const searchIndex = curated.map(indexItem);
+  // Индекс строится при первом поиске, а не при запуске: так телефону меньше работы, пока грузится карта
+  let searchIndex = null;
+  const getSearchIndex = () => searchIndex || (searchIndex = curated.map(indexItem));
 
   // ---------- Места по районам (js/places-districts.js) ----------
   // ~1700 мест грузятся уже после появления карты, чтобы не задерживать запуск
@@ -872,7 +893,7 @@
             if (v('fullName')) p.fullName = v('fullName');
             curated.push(p);
             byId.set(p.id, p);
-            searchIndex.push(indexItem(p));
+            if (searchIndex) searchIndex.push(indexItem(p));
           }
           if (i < rows.length) setTimeout(step, 0);
           else { window.DISTRICT_PLACES = null; resolve(); }
@@ -888,7 +909,7 @@
     const words = norm(q).split(/[\s,.«»"]+/).filter(Boolean);
     if (!words.length) return [];
     const res = [];
-    for (const it of searchIndex) {
+    for (const it of getSearchIndex()) {
       if (it.p.cat === 'night' && !adultOk) continue;
       let score = 0;
       for (const w of words) {
@@ -1128,7 +1149,8 @@
     // Обложка — фото первой остановки, у которой оно есть (с автором — так требует лицензия)
     const coverId = locked ? null : ps.map((p) => p.id).find((id) => (window.PLACE_PHOTOS || {})[id]);
     const ph = coverId && window.PLACE_PHOTOS[coverId];
-    const cover = ph ? `<div class="route-cover"><img src="${esc(ph.src)}?v=${encodeURIComponent(window.APP_VERSION || '')}" alt="" loading="lazy" decoding="async">
+    // для обложки — лёгкое превью 720×240 (img/thumbs), а не полное фото: список листается без рывков
+    const cover = ph ? `<div class="route-cover"><img src="${esc(ph.src.replace('img/places/', 'img/thumbs/'))}?v=${encodeURIComponent(window.APP_VERSION || '')}" alt="" loading="lazy" decoding="async">
         <span>Фото: ${esc(ph.author || 'Wikimedia Commons')}${ph.license ? ' · ' + esc(ph.license) : ''}</span></div>` : '';
     return `<div class="route-card${locked ? ' route-card--locked' : ''}${ph ? ' route-card--cover' : ''}" data-route="${kind}:${esc(r.id)}" role="button" tabindex="0">
       ${cover}
@@ -2078,8 +2100,7 @@
       resizeTimer = setTimeout(() => { try { MapView.setMinZoom(maxViewZoom()); } catch (e) { /* карта ещё не готова */ } }, 300);
     });
     MapView.onMove(onMove);
-    onMove(MapView.view());
-    render();
+    onMove(MapView.view()); // здесь же и первая расстановка меток
     hideSplash();
     // Ссылка от друга (startapp=p-<id>) — сразу открываем это место.
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место

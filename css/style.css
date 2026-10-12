@@ -375,6 +375,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   cursor: pointer;
 }
 .route-card:active { background: var(--surface-2); }
+/* Карточки и строки, до которых ещё не долистали, браузер не рисует — длинные списки
+   в шторках открываются без подвисаний (размер «auto» запоминается после первой отрисовки) */
+.route-card, .rows > .row { content-visibility: auto; contain-intrinsic-size: auto 96px; }
+.rows > .row { contain-intrinsic-size: auto 62px; }
+.route-card--cover { contain-intrinsic-size: auto 212px; }
 .route-card--locked { opacity: 0.7; }
 .route-card--cover { padding-top: 0; overflow: hidden; }
 .route-cover { position: relative; height: 112px; margin: 0 -12px 10px -14px; background: var(--surface-2); }
