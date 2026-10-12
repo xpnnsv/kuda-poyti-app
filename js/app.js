@@ -858,6 +858,21 @@
   // Индекс строится при первом поиске, а не при запуске: так телефону меньше работы, пока грузится карта
   let searchIndex = null;
   const getSearchIndex = () => searchIndex || (searchIndex = curated.map(indexItem));
+  // После загрузки мест индекс достраивается понемногу в паузах, когда телефон свободен, —
+  // тогда и первый поиск мгновенный, и запуск не тормозит
+  function warmSearchIndex() {
+    if (searchIndex) return;
+    const idle = window.requestIdleCallback || ((cb) => setTimeout(() => cb({ timeRemaining: () => 6 }), 60));
+    const list = curated.slice(), built = [];
+    let i = 0;
+    const work = (dl) => {
+      if (searchIndex) return; // поиск успел построить индекс сам
+      while (i < list.length && dl.timeRemaining() > 1) built.push(indexItem(list[i++]));
+      if (i < list.length) idle(work);
+      else searchIndex = built;
+    };
+    idle(work);
+  }
 
   // ---------- Места по районам (js/places-districts.js) ----------
   // ~1700 мест грузятся уже после появления карты, чтобы не задерживать запуск
@@ -2104,7 +2119,7 @@
     hideSplash();
     // Ссылка от друга (startapp=p-<id>) — сразу открываем это место.
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
-    const districtsReady = loadDistrictPlaces().then(() => { render(); syncFilters(); updateFavButton(); updateDraftBadge(); });
+    const districtsReady = loadDistrictPlaces().then(() => { render(); syncFilters(); updateFavButton(); updateDraftBadge(); warmSearchIndex(); });
     const sp = startParam();
     if (sp.startsWith('r-') || sp.startsWith('m-')) {
       // ссылка на маршрут от друга
