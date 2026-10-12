@@ -18,13 +18,9 @@
   const catLabel = (p) => (p.kind === 'food_court' ? 'Фудкорт' : p.kind === 'mall' ? 'Торговый центр' : CATS[p.cat].label);
   // Сколько названий показывать в списках «Где поесть» / «Развлечения»
   const LIST_LIMIT = 12;
-  const BUDGETS = [
-    { v: null, label: 'Любой' },
-    { v: 0, label: 'Бесплатно' },
-    { v: 500, label: 'до 500 ₽' },
-    { v: 1500, label: 'до 1 500 ₽' },
-    { v: 3000, label: 'до 3 000 ₽' },
-  ];
+  // Ползунок бюджета: шаги неравномерные — как люди думают о деньгах; последний шаг — «любой»
+  const BUDGET_STOPS = [0, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, null];
+  const budgetLabel = (v) => (v === null ? 'Любой' : v === 0 ? 'Только бесплатное' : `до ${v.toLocaleString('ru-RU')} ₽`);
   const SETTINGS = [
     { v: 'any', label: 'Неважно' },
     { v: 'outdoor', label: 'На улице' },
@@ -592,7 +588,8 @@
   function enableSwipe(sheet) {
     let startY = null, dy = 0;
     sheet.addEventListener('touchstart', (e) => {
-      if (sheet.scrollTop > 0) return;
+      // ползунок бюджета тянут пальцем — это не жест закрытия шторки
+      if (sheet.scrollTop > 0 || e.target.closest('input[type=range]')) return;
       startY = e.touches[0].clientY;
       dy = 0;
       sheet.style.transition = 'none';
@@ -1137,7 +1134,7 @@
         b.classList.toggle('active', options[+b.dataset.i].v === value)
       );
     };
-    mark('#f-budget', BUDGETS, state.budget);
+    syncBudget();
     mark('#f-setting', SETTINGS, state.setting);
     $('#f-open').checked = state.openNow;
 
@@ -1155,8 +1152,30 @@
     render();
   }
 
+  // Ползунок и подпись бюджета; заливка дорожки до ползунка — через переменную --fill
+  function syncBudget() {
+    const r = $('#f-budget');
+    const i = Math.max(0, BUDGET_STOPS.indexOf(state.budget));
+    r.value = i;
+    r.style.setProperty('--fill', (i / (BUDGET_STOPS.length - 1)) * 100 + '%');
+    r.setAttribute('aria-valuetext', budgetLabel(state.budget));
+    $('#budget-value').textContent = budgetLabel(state.budget);
+  }
+
   function buildFilters() {
-    segment('#f-budget', BUDGETS, 'budget');
+    const range = $('#f-budget');
+    range.max = BUDGET_STOPS.length - 1;
+    let frame = 0;
+    range.addEventListener('input', () => {
+      const v = BUDGET_STOPS[+range.value];
+      if (v === state.budget) return;
+      state.budget = v;
+      haptic.tap(); // лёгкий щелчок на каждом шаге
+      syncFilters(); // подпись и «Показать N мест» — сразу
+      // карту перерисовываем не чаще раза за кадр, пока тянут ползунок
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(render);
+    });
     segment('#f-setting', SETTINGS, 'setting');
     $('#f-open').addEventListener('change', (e) => {
       state.openNow = e.target.checked;
