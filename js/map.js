@@ -50,6 +50,9 @@
       const props = {
         location: { center: [o.center[1], o.center[0]], zoom: o.zoom },
         theme: o.dark ? 'dark' : 'light',
+        // Растровые плитки вместо векторной отрисовки: выглядит так же, а движение карты
+        // в 3–4 раза легче для телефона (векторная карта считает каждый кадр на JS)
+        mode: 'raster',
       };
       // Порядок углов: юго-запад, затем северо-восток (проверено на живой карте)
       if (o.bounds) props.restrictMapArea = [[o.bounds.west, o.bounds.south], [o.bounds.east, o.bounds.north]];
