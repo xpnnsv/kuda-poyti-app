@@ -131,5 +131,30 @@
     return week[day].map(([s, e]) => (s === 0 && e >= 1440 ? 'круглосуточно' : fmt(s) + '–' + fmt(e))).join(', ');
   }
 
-  window.Hours = { parse, status, today };
+  // Сколько минут место ещё будет открыто в момент date: Infinity — круглосуточно,
+  // 0 — закрыто, null — часы неизвестны
+  function minutesLeft(str, date) {
+    const week = parse(str);
+    if (!week) return null;
+    if (isAllDay(week)) return Infinity;
+    const { day, minutes } = moscowNow(date);
+    const prev = (day + 6) % 7;
+    let left = 0;
+    for (const [s, e] of week[day]) if (minutes >= s && minutes < e) left = Math.max(left, e - minutes);
+    for (const [, e] of week[prev]) if (e > 1440 && minutes < e - 1440) left = Math.max(left, e - 1440 - minutes);
+    return left;
+  }
+
+  // Когда откроется (в минутах от date), если сейчас закрыто; null — неизвестно или не откроется в ближайшие сутки
+  function minutesToOpen(str, date) {
+    const week = parse(str);
+    if (!week) return null;
+    const { day, minutes } = moscowNow(date);
+    const starts = week[day].map(([s]) => s).filter((s) => s > minutes);
+    if (starts.length) return Math.min(...starts) - minutes;
+    const next = week[(day + 1) % 7].map(([s]) => s);
+    return next.length ? 1440 - minutes + Math.min(...next) : null;
+  }
+
+  window.Hours = { parse, status, today, minutesLeft, minutesToOpen, fmt };
 })();

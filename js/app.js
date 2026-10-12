@@ -1060,8 +1060,9 @@
 
   const legMin = (a, b) => Math.max(1, Math.round((distance(a, b) * 1.3) / WALK_M_PER_MIN)); // улицы не прямые — +30%
 
-  function routeStats(ps) {
+  function routeStats(ps, from) {
     let m = 0, walk = 0, lo = 0, hi = 0, unknown = 0;
+    if (from && ps.length) { m += distance(from, ps[0]) * 1.3; walk += legMin(from, ps[0]); }
     for (let i = 1; i < ps.length; i++) { m += distance(ps[i - 1], ps[i]) * 1.3; walk += legMin(ps[i - 1], ps[i]); }
     for (const p of ps) {
       const r = priceRange(p);
@@ -1144,9 +1145,14 @@
     document.querySelectorAll('#routes-tabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.v === routesTab));
     const body = $('#routes-body');
     if (routesTab === 'ready') {
-      // понравившиеся — сверху
-      const list = READY_ROUTES.slice().sort((a, b) => likedRoutes.has(b.id) - likedRoutes.has(a.id));
-      body.innerHTML = `<div class="route-list">${list.map((r) => routeCardHtml(r, 'ready')).join('')}</div>
+      // понравившиеся — сверху; фильтр по времени и цене
+      const f = ROUTE_FILTERS.find((x) => x.v === routeFilter);
+      const list = READY_ROUTES.slice()
+        .filter((r) => f.test(routeStats(routePlaces(r.ids))))
+        .sort((a, b) => likedRoutes.has(b.id) - likedRoutes.has(a.id));
+      const chips = ROUTE_FILTERS.map((x) => `<button type="button" class="seg-btn${x.v === routeFilter ? ' active' : ''}" data-rfilter="${x.v}">${x.label}</button>`).join('');
+      body.innerHTML = genFormHtml() + `<div class="seg route-filters">${chips}</div>
+        <div class="route-list">${list.length ? list.map((r) => routeCardHtml(r, 'ready')).join('') : '<p class="empty">Под этот фильтр готовых маршрутов нет — попробуй «Собери маршрут за меня».</p>'}</div>
         <p class="f-note">Скоро: маршруты от других людей и «Популярные» по лайкам.</p>`;
     } else {
       body.innerHTML = draftHtml() + (savedRoutes.length
@@ -1178,19 +1184,29 @@
     activeRoute = Object.assign({}, r, { ids: ps.map((p) => p.id) });
     state.route = activeRoute.ids;
     state.selected = null;
-    MapView.setLine(ps.map((p) => [p.lat, p.lon]));
+    drawRouteLine();
     renderRouteSheet();
     openSheet('route');
     render();
-    fitPlaces(ps, Math.round(window.innerHeight * 0.45));
+    fitPlaces(activeRoute.fromMe ? [activeRoute.fromMe].concat(ps) : ps, Math.round(window.innerHeight * 0.45));
+  }
+
+  function drawRouteLine() {
+    const r = activeRoute;
+    const pts = routePlaces(r.ids).map((p) => [p.lat, p.lon]);
+    if (r.fromMe) pts.unshift([r.fromMe.lat, r.fromMe.lon]);
+    MapView.setLine(pts);
   }
 
   function renderRouteSheet() {
     const r = activeRoute;
     const ps = routePlaces(r.ids);
-    const st = routeStats(ps);
+    const st = routeStats(ps, r.fromMe);
     const liked = likedRoutes.has(r.id);
-    const stops = ps.map((p, i) => {
+    const meStop = r.fromMe ? `<li class="route-stop route-stop--me"><span class="stop-num stop-num--me">${icon('locate')}</span>
+        <span class="stop-name"><b>Ты здесь</b><small>начало маршрута</small></span></li>
+        <li class="route-leg">${legMin(r.fromMe, ps[0])} мин пешком</li>` : '';
+    const stops = meStop + ps.map((p, i) => {
       const leg = i ? `<li class="route-leg">${legMin(ps[i - 1], p)} мин пешком</li>` : '';
       const s = Hours.status(p.hours).state;
       return `${leg}<li class="route-stop" data-id="${esc(p.id)}">
@@ -1215,11 +1231,13 @@
       </div>
       ${r.desc ? `<p class="place-desc">${esc(r.desc)}</p>` : ''}
       <ol class="route-stops">${stops}</ol>
+      <div class="draft-links"><button type="button" data-raction="from-me">${r.fromMe ? 'Начать с первого места' : 'Начать отсюда'}</button></div>
       <p class="place-note">Время — примерное: дорога пешком и сколько обычно проводят в таком месте.</p>
       <div class="place-actions">
         <button class="btn btn-primary" type="button" data-raction="go">Идти — Яндекс Карты</button>
-        ${r.shared ? '<button class="btn btn-secondary" type="button" data-raction="keep">Сохранить себе</button>' : ''}
-      </div>`;
+        ${r.shared || r.gen ? '<button class="btn btn-secondary" type="button" data-raction="keep">Сохранить</button>' : ''}
+      </div>
+      ${r.gen ? `<button class="btn btn-secondary btn-wide" type="button" data-raction="regen">${icon('dice')} Ещё вариант</button>` : ''}`;
   }
 
   function closeRoute() {
@@ -1230,8 +1248,8 @@
   }
 
   // Весь маршрут пешком в Яндекс Картах (Яндекс сам проложит путь по улицам)
-  function routeGoUrl(ps) {
-    return 'https://yandex.ru/maps/?rtext=' + ps.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join('~') + '&rtt=pd';
+  function routeGoUrl(ps, from) {
+    return 'https://yandex.ru/maps/?rtext=' + (from ? [from].concat(ps) : ps).map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join('~') + '&rtt=pd';
   }
 
   // Ссылка на маршрут: готовый — по названию (r-<id>), свой — по номерам мест в Яндексе (m-<коды>).
@@ -1297,6 +1315,114 @@
     const after = routeStats(out).km;
     toast(after < before - 0.05 ? `Путь стал короче на ${kmText(before - after)}` : 'Порядок уже удобный');
   }
+
+  // ---------- «Собери маршрут за меня» ----------
+  // Цепочка «кофе → прогулка → еда» из хороших мест рядом: каждое следующее — недалеко от предыдущего,
+  // укладывается в бюджет и будет открыто, когда до него дойдёшь.
+  const GEN_DUR = [
+    { v: 'short', label: '1–2 ч', max: 130, steps: ['coffee', 'photo'] },
+    { v: 'mid', label: '2–3 ч', max: 200, steps: ['coffee', 'photo', 'food'] },
+    { v: 'long', label: 'Полдня', max: 330, steps: ['coffee', 'photo', 'photo', 'food'] },
+  ];
+  const GEN_BUDGET = [
+    { v: 0, label: 'Бесплатно' },
+    { v: 1000, label: 'до 1 000 ₽' },
+    { v: 2500, label: 'до 2 500 ₽' },
+    { v: null, label: 'Любой' },
+  ];
+  const gen = { dur: 'mid', budget: 2500, museum: false, rain: false, bar: false, open: false };
+
+  function genStepsFor() {
+    let steps = GEN_DUR.find((d) => d.v === gen.dur).steps.slice();
+    if (gen.rain) steps = steps.map((c) => (c === 'photo' ? 'museum' : c)); // в дождь — вместо прогулки музей
+    else if (gen.museum) { const i = steps.indexOf('photo'); if (i >= 0) steps[i] = 'museum'; else steps.splice(1, 0, 'museum'); }
+    if (gen.budget === 0) steps = steps.map((c) => (c === 'coffee' || c === 'food' ? 'photo' : c)); // бесплатно — только прогулки и бесплатные музеи
+    if (gen.bar && adultOk) steps.push('night');
+    return steps;
+  }
+
+  async function generateRoute() {
+    haptic.impact();
+    let from = null, me = false;
+    try {
+      const pos = state.user || (await Promise.race([getPosition(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]));
+      const b = cfg.MAP_BOUNDS;
+      if (pos.lat > b.south && pos.lat < b.north && pos.lon > b.west && pos.lon < b.east) { from = pos; me = true; state.user = pos; MapView.setUser(pos.lat, pos.lon, userEl()); }
+    } catch (e) { /* без геолокации — от центра карты */ }
+    if (!from) { const v = state.view.bounds; from = { lat: (v.north + v.south) / 2, lon: (v.east + v.west) / 2 }; }
+
+    const steps = genStepsFor();
+    const max = GEN_DUR.find((d) => d.v === gen.dur).max + (gen.bar ? 60 : 0);
+    const used = new Set(), ids = [], skipped = [];
+    let cur = from, clock = new Date(), spent = 0, total = 0;
+    for (const cat of steps) {
+      let pick = null;
+      for (const radius of [900, 1600, 2600]) {
+        const cands = curated.filter((p) => {
+          if (p.cat !== cat || used.has(p.id) || (p.rating && p.rating < 4.4)) return false;
+          if (cat === 'night' && !adultOk) return false;
+          const d = distance(cur, p);
+          if (d > radius) return false;
+          const r = priceRange(p);
+          if (gen.budget !== null && (!r || spent + (r[0] + r[1]) / 2 > gen.budget)) return false; // по середине вилки цен
+          const arrive = new Date(clock.getTime() + (ids.length || me ? legMin(cur, p) : 0) * 60000);
+          const left = Hours.minutesLeft(p.hours, arrive);
+          return left === null ? cat === 'photo' : left >= stayFor(p) * 0.7; // успеть побыть хотя бы 70% времени
+        });
+        if (cands.length) {
+          // из лучших вариантов — случайный, чтобы «Ещё вариант» давал новый маршрут
+          const score = (p) => Math.sqrt(p.pop || 1) * (p.rating >= 4.8 ? 1.3 : 1) / (1 + distance(cur, p) / 600);
+          const top = cands.sort((a, b) => score(b) - score(a)).slice(0, 6);
+          pick = top[Math.floor(Math.random() * top.length)];
+          break;
+        }
+      }
+      if (!pick) { skipped.push(cat); continue; }
+      const leg = ids.length || me ? legMin(cur, pick) : 0;
+      if (total + leg + stayFor(pick) > max && ids.length >= 2) break;
+      ids.push(pick.id); used.add(pick.id);
+      const r = priceRange(pick); if (r) spent += (r[0] + r[1]) / 2;
+      total += leg + stayFor(pick);
+      clock = new Date(clock.getTime() + (leg + stayFor(pick)) * 60000);
+      cur = pick;
+    }
+    if (ids.length < 2) { toast('Рядом не нашлось подходящих мест — сдвинь карту или смягчи условия'); return; }
+    const names = { coffee: 'кофе', photo: 'прогулка', food: 'еда', museum: 'музей', night: 'бар' };
+    const title = ids.map((id) => names[byId.get(id).cat]).join(' → ');
+    showRoute({ id: 'gen', title: title[0].toUpperCase() + title.slice(1), emoji: '✨', ids, gen: true, fromMe: me ? from : null });
+    const why = { museum: 'Музеи', coffee: 'Кофейни', food: 'Места с едой', night: 'Бары', photo: 'Парки и красивые места' };
+    const miss = [...new Set(skipped)].filter((c) => !ids.some((id) => byId.get(id).cat === c));
+    if (miss.length) toast(`${miss.map((c) => why[c]).join(' и ')} рядом сейчас закрыты или не по бюджету — собрал без них`);
+  }
+
+  function genFormHtml() {
+    const seg = (list, key) => list.map((o) => `<button type="button" class="seg-btn${gen[key] === o.v ? ' active' : ''}" data-gen="${key}" data-val="${o.v}">${o.label}</button>`).join('');
+    const tog = (key, label) => `<button type="button" class="seg-btn${gen[key] ? ' active' : ''}" data-gen-toggle="${key}">${label}</button>`;
+    return `<div class="gen${gen.open ? ' gen--open' : ''}">
+      <button type="button" class="gen-head" data-gen-open>
+        <span class="route-emoji">✨</span>
+        <span class="route-title"><b>Собери маршрут за меня</b><small>Кофе, прогулка и еда рядом — под твоё время и бюджет</small></span>
+        <span class="ya-arrow">${gen.open ? '−' : '+'}</span>
+      </button>
+      ${gen.open ? `<div class="gen-body">
+        <div class="f-label">Сколько времени</div><div class="seg">${seg(GEN_DUR, 'dur')}</div>
+        <div class="f-label">Бюджет на человека</div><div class="seg">${seg(GEN_BUDGET, 'budget')}</div>
+        <div class="f-label">Ещё</div><div class="seg">${tog('museum', 'С музеем')}${tog('rain', 'Если дождь')}${tog('bar', 'Закончить в баре 18+')}</div>
+        <button type="button" class="btn btn-primary btn-wide" data-gen-go>Собрать маршрут</button>
+        <p class="f-note">Начнём от тебя (если разрешишь геолокацию) или от центра карты.</p>
+      </div>` : ''}
+    </div>`;
+  }
+
+  // Фильтры готовых маршрутов
+  const ROUTE_FILTERS = [
+    { v: 'all', label: 'Все', test: () => true },
+    { v: 'short', label: 'До 2,5 ч', test: (st) => st.total <= 150 },
+    { v: 'half', label: 'Полдня', test: (st) => st.total > 150 },
+    { v: 'cheap', label: 'До 1 500 ₽', test: (st) => st.lo <= 1500 },
+    { v: 'free', label: 'Почти бесплатно', test: (st) => st.hi <= 700 },
+  ];
+  let routeFilter = 'all';
 
   function routeFromCode(code) {
     if (code.startsWith('r-')) return READY_ROUTES.find((r) => r.id === code.slice(2)) || null;
@@ -1610,6 +1736,24 @@
     });
     $('#routes-body').addEventListener('click', (e) => {
       const t = e.target;
+      // «Собери маршрут за меня» и фильтры
+      const gOpen = t.closest('[data-gen-open]'), gSet = t.closest('[data-gen]'), gTog = t.closest('[data-gen-toggle]');
+      const gGo = t.closest('[data-gen-go]'), rf = t.closest('[data-rfilter]');
+      if (gOpen) { gen.open = !gen.open; haptic.tap(); renderRoutes(); return; }
+      if (gSet) {
+        const v = gSet.dataset.val;
+        gen[gSet.dataset.gen] = gSet.dataset.gen === 'budget' ? (v === 'null' ? null : +v) : v;
+        haptic.tap(); renderRoutes(); return;
+      }
+      if (gTog) {
+        const k = gTog.dataset.genToggle;
+        const flip = () => { gen[k] = !gen[k]; if (k === 'rain' && gen.rain) gen.museum = false; if (k === 'museum' && gen.museum) gen.rain = false; haptic.tap(); renderRoutes(); };
+        if (k === 'bar' && !gen.bar && !adultOk) askAdult().then((ok) => { openSheet('routes'); if (ok) flip(); });
+        else flip();
+        return;
+      }
+      if (gGo) { gGo.disabled = true; gGo.textContent = 'Собираю…'; generateRoute().finally(() => { gGo.disabled = false; gGo.textContent = 'Собрать маршрут'; }); return; }
+      if (rf) { routeFilter = rf.dataset.rfilter; haptic.tap(); renderRoutes(); return; }
       const like = t.closest('[data-like]'), del = t.closest('[data-del]'), move = t.closest('[data-move]');
       const remove = t.closest('[data-remove]'), act = t.closest('[data-draft]'), card = t.closest('[data-route]');
       if (like) { toggleRouteLike(like.dataset.like); renderRoutes(); return; }
@@ -1654,10 +1798,22 @@
         const x = a.dataset.raction;
         if (x === 'close') closeSheets();
         else if (x === 'share') shareRoute(r);
-        else if (x === 'go') { haptic.impact(); openLink(routeGoUrl(routePlaces(r.ids))); }
+        else if (x === 'go') { haptic.impact(); openLink(routeGoUrl(routePlaces(r.ids), r.fromMe)); }
         else if (x === 'like') { toggleRouteLike(r.id); renderRouteSheet(); }
+        else if (x === 'regen') generateRoute();
+        else if (x === 'from-me') {
+          if (r.fromMe) { r.fromMe = null; drawRouteLine(); renderRouteSheet(); return; }
+          a.textContent = 'Ищу, где ты…';
+          getPosition().then((pos) => {
+            state.user = pos;
+            MapView.setUser(pos.lat, pos.lon, userEl());
+            if (activeRoute !== r) return;
+            r.fromMe = pos;
+            drawRouteLine(); renderRouteSheet(); haptic.tap();
+          }, () => { a.textContent = 'Начать отсюда'; toast('Не получилось определить, где ты. Разреши доступ к геолокации'); });
+        }
         else if (x === 'keep') {
-          savedRoutes.unshift({ id: 's' + Date.now().toString(36), title: r.title, emoji: '🤝', ids: r.ids.slice() });
+          savedRoutes.unshift({ id: 's' + Date.now().toString(36), title: r.title, emoji: r.emoji || '🤝', ids: r.ids.slice() });
           savedRoutes = savedRoutes.slice(0, 10);
           saveRoutesData('routes_saved'); haptic.notify('success'); toast('Сохранено в «Маршруты → Мои»');
         }
