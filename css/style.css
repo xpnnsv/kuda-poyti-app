@@ -601,6 +601,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   z-index: 10;
 }
 
+/* Холст с метками поверх Яндекс Карты (js/map.js): пальцы проходят сквозь него к карте,
+   а нажатие на метку ловится отдельно */
+.mk-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 /* Издалека метки поменьше, чтобы не слипались */
 #map.zoom-far .mk { width: 26px; height: 26px; }
 #map.zoom-far .mk > .ic { width: 14px; height: 14px; }

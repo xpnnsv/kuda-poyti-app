@@ -178,8 +178,7 @@
     haptic.impact(on ? 'medium' : 'light');
     toast(on ? 'Сохранено в избранное' : 'Убрано из избранного');
     updateFavButton();
-    const el = markerEls.get(p.id);
-    if (el) el.classList.toggle('mk--fav', on);
+    render(); // сердечко на метке
   }
 
   // ---------- Подтверждение возраста (бары и кальянные 18+) ----------
@@ -551,14 +550,24 @@
     const sel = state.selected;
     if (sel && !places.includes(sel)) places.push(sel);
     const { shown, inView, shownInView } = layout(places, state.view);
+    const far = state.view.zoom < 13.5;
     const items = shown.map((s) => {
-      const el = markerEl(s.p);
-      el.classList.toggle('mk--label', s.label);
       // в маршруте у меток номера остановок
       const n = state.route ? state.route.indexOf(s.p.id) + 1 : 0;
+      const z = s.selected ? 1000 : Math.min(999, Math.round(Math.log10((s.p.pop || 0) + 1) * 100));
+      // Яндекс Карты: метки рисуются на холсте — передаём не элемент, а что нарисовать
+      if (MapView.canvasMarkers) {
+        return {
+          id: s.p.id, lat: s.p.lat, lon: s.p.lon, z, cat: s.p.cat, name: s.p.name, label: s.label, num: n,
+          active: s.selected, fav: favs.has(s.p.id), far, small: s.p.source === 'live',
+          onClick: () => { haptic.tap(); openPlace(s.p); },
+        };
+      }
+      const el = markerEl(s.p);
+      el.classList.toggle('mk--label', s.label);
       el.classList.toggle('mk--route', n > 0);
       if (n) el.dataset.num = n;
-      return { id: s.p.id, lat: s.p.lat, lon: s.p.lon, el, z: s.selected ? 1000 : Math.min(999, Math.round(Math.log10((s.p.pop || 0) + 1) * 100)) };
+      return { id: s.p.id, lat: s.p.lat, lon: s.p.lon, el, z };
     });
     MapView.setMarkers(items);
     // Кэш меток не растёт бесконечно: за долгую прогулку по карте набегали бы тысячи элементов
