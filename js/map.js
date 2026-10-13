@@ -267,14 +267,31 @@
     this.draw();
   };
 
+  // «Ты здесь» — один HTML-элемент поверх холста (у него пульсирует кольцо — это делает видеокарта),
+  // двигаем его в том же кадре, что и метки
+  CanvasMarkers.prototype.setUser = function (lat, lon, el) {
+    if (!this.userLayer) {
+      this.userLayer = document.createElement('div');
+      this.userLayer.className = 'me-layer';
+      this.el.appendChild(this.userLayer);
+    }
+    this.userLayer.replaceChildren(el);
+    this.user = { lat, lon, _my: merc(lat), el };
+    this.draw();
+  };
+
   CanvasMarkers.prototype.draw = function () {
     const g = this.ctx, w = this.w, h = this.h;
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.clearRect(0, 0, w, h);
     this.placed = [];
-    if (!this.items.length) return;
+    if (!this.items.length && !this.user) return;
     const b = boundsFromCorners(this.map.bounds[0], this.map.bounds[1]);
     const mN = merc(b.north), mS = merc(b.south), kx = w / (b.east - b.west), ky = h / (mN - mS);
+    if (this.user) {
+      const u = this.user;
+      u.el.style.transform = `translate3d(${((u.lon - b.west) * kx).toFixed(1)}px, ${((mN - u._my) * ky).toFixed(1)}px, 0)`;
+    }
     for (const it of this.items) {
       const x = (it.lon - b.west) * kx, y = (mN - it._my) * ky;
       if (x < -80 || x > w + 80 || y < -50 || y > h + 50) continue;
@@ -356,12 +373,7 @@
       else this.map.update({ location });
     },
 
-    setUser(lat, lon, el) {
-      const { YMapMarker } = ymaps3;
-      if (this.userMarker) this.map.removeChild(this.userMarker);
-      this.userMarker = new YMapMarker({ coordinates: [lon, lat], zIndex: 2000 }, el);
-      this.map.addChild(this.userMarker);
-    },
+    setUser(lat, lon, el) { this.cm.setUser(lat, lon, el); },
 
     setDark(dark) {
       try { this.map.update({ theme: dark ? 'dark' : 'light' }); } catch (e) { /* старые версии API */ }

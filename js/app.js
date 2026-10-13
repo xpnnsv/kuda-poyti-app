@@ -456,9 +456,11 @@
     return el;
   }
 
+  // Метка «Ты здесь»: пульсирующая точка с подписью
   function userEl() {
     const el = document.createElement('div');
-    el.className = 'me';
+    el.className = 'me-wrap';
+    el.innerHTML = '<div class="me"></div><b class="me-label">Ты здесь</b>';
     return el;
   }
 
@@ -626,22 +628,36 @@
     // открыли что-то другое (поиск, фильтры…) поверх маршрута — убираем маршрут с карты
     if (activeRoute && !['route', 'place', 'age'].includes(name)) closeRoute();
     if (openSheetName !== name) {
-      document.querySelectorAll('.sheet.open').forEach((s) => s.classList.remove('open'));
-      $(`#${name}-sheet`).classList.add('open');
-      $(`#${name}-sheet`).scrollTop = 0;
+      document.querySelectorAll('.sheet.open').forEach(hideSheet);
+      const el = $(`#${name}-sheet`);
+      el.scrollTop = 0;
+      // Шторка выезжает уже готовой: сначала браузер верстает и рисует её содержимое, пока она
+      // ещё за краем экрана (отдельным слоем), и только через два кадра начинается анимация.
+      // Раньше вся эта работа приходилась на первые кадры выезда — отсюда рывок
+      clearTimeout(el._prepTimer);
+      el.classList.add('sheet--prep');
+      void el.offsetHeight;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (openSheetName === name) el.classList.add('open');
+      }));
       openSheetName = name;
     }
     $('#backdrop').classList.add('show');
-    $('#backdrop').classList.toggle('backdrop--light', name === 'place' || name === 'route');
+    $('#backdrop').classList.toggle('backdrop--light', name === 'place' || name === 'route' || name === 'near');
     document.body.classList.add('sheet-open');
     if (supports('6.1')) tg.BackButton.show();
   }
 
+  // Убрать шторку; отдельный слой для анимации держим, пока она не уедет, потом освобождаем память
+  function hideSheet(s) {
+    s.classList.remove('open');
+    s.style.transform = '';
+    clearTimeout(s._prepTimer);
+    s._prepTimer = setTimeout(() => { if (!s.classList.contains('open')) s.classList.remove('sheet--prep'); }, 450);
+  }
+
   function closeSheets() {
-    document.querySelectorAll('.sheet.open').forEach((s) => {
-      s.classList.remove('open');
-      s.style.transform = '';
-    });
+    document.querySelectorAll('.sheet.open, .sheet--prep').forEach(hideSheet);
     $('#backdrop').classList.remove('show');
     document.body.classList.remove('sheet-open');
     $('#search-input').blur();
@@ -1050,6 +1066,14 @@
       const b = cfg.MAP_BOUNDS;
       const inMoscow = pos.lat > b.south && pos.lat < b.north && pos.lon > b.west && pos.lon < b.east;
       nearFrom = inMoscow ? { lat: pos.lat, lon: pos.lon, me: true } : null;
+      // Показываем тебя на карте — над шторкой, между верхней панелью и её краем
+      if (inMoscow && openSheetName === 'near') {
+        const zoom = Math.max(state.view ? state.view.zoom : 0, 15);
+        const H = getMapSize().h, sheetTop = window.innerHeight - $('#near-sheet').offsetHeight;
+        const target = (150 + sheetTop) / 2; // где на экране должна оказаться метка «Ты здесь»
+        const degPerPx = (1.40625 * Math.cos((pos.lat * Math.PI) / 180)) / Math.pow(2, zoom);
+        MapView.flyTo(pos.lat - (H / 2 - target) * degPerPx, pos.lon, zoom);
+      }
     } catch (e) { /* нет доступа к геолокации */ }
     if (!nearFrom) {
       const v = state.view.bounds;
@@ -1154,7 +1178,16 @@
 
   const legMin = (a, b) => Math.max(1, Math.round((distance(a, b) * 1.3) / WALK_M_PER_MIN)); // улицы не прямые — +30%
 
+  // Для списка маршрутов (без «от меня») результат не меняется — считаем один раз на маршрут
+  const statsCache = new Map();
   function routeStats(ps, from, route) {
+    const key = !from && route ? route.id + '|' + ps.map((p) => p.id).join(',') : null;
+    if (key && statsCache.has(key)) return statsCache.get(key);
+    const st = calcRouteStats(ps, from, route);
+    if (key) statsCache.set(key, st);
+    return st;
+  }
+  function calcRouteStats(ps, from, route) {
     let m = 0, walk = 0, lo = 0, hi = 0, unknown = 0;
     if (from && ps.length) { m += distance(from, ps[0]) * 1.3; walk += legMin(from, ps[0]); }
     for (let i = 1; i < ps.length; i++) { m += distance(ps[i - 1], ps[i]) * 1.3; walk += legMin(ps[i - 1], ps[i]); }
@@ -2174,7 +2207,11 @@
     hideSplash();
     // Ссылка от друга (startapp=p-<id>) — сразу открываем это место.
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
-    const districtsReady = loadDistrictPlaces().then(() => { render(); syncFilters(); updateFavButton(); updateDraftBadge(); warmSearchIndex(); });
+    const districtsReady = loadDistrictPlaces().then(() => {
+      render(); syncFilters(); updateFavButton(); updateDraftBadge(); warmSearchIndex();
+      // время и цену готовых маршрутов считаем заранее, в паузе, — «Маршруты» открываются быстрее
+      (window.requestIdleCallback || setTimeout)(() => READY_ROUTES.forEach((r) => { const ps = routePlaces(r.ids); if (ps.length > 1) routeStats(ps, null, r); }));
+    });
     const sp = startParam();
     if (sp.startsWith('r-') || sp.startsWith('m-')) {
       // ссылка на маршрут от друга
