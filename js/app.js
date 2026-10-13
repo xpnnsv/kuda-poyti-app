@@ -589,6 +589,20 @@
     if (!curBounds || ['south', 'north', 'west', 'east'].some((k) => Math.abs(nb[k] - curBounds[k]) > 0.002)) {
       curBounds = nb;
       try { MapView.setBounds(nb); } catch (e) { /* карта ещё не готова */ }
+      // Яндекс сам не возвращает карту в рамку после её смены — если экран вылез за рамку
+      // (например, при резком отдалении Москва прижалась к краю), плавно сдвигаем обратно
+      const v = view.bounds, mN = merc(v.north), mS = merc(v.south), bN = merc(nb.north), bS = merc(nb.south);
+      let dy = 0, dx = 0;
+      if (mN - mS >= bN - bS - 1e-6) dy = (bN + bS) / 2 - (mN + mS) / 2;
+      else if (mN > bN) dy = bN - mN;
+      else if (mS < bS) dy = bS - mS;
+      if (v.east - v.west >= nb.east - nb.west - 1e-6) dx = (nb.east + nb.west) / 2 - (v.east + v.west) / 2;
+      else if (v.east > nb.east) dx = nb.east - v.east;
+      else if (v.west < nb.west) dx = nb.west - v.west;
+      if (Math.abs(dy) > 1e-4 || Math.abs(dx) > 1e-4) {
+        const cy = (mN + mS) / 2 + dy;
+        MapView.flyTo((Math.atan(Math.exp(cy)) * 360) / Math.PI - 90, (v.east + v.west) / 2 + dx, view.zoom);
+      }
     }
     const map = $('#map');
     map.classList.toggle('zoom-far', view.zoom < 13.5);
