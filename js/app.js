@@ -105,7 +105,9 @@
     }
     return best && bestD < 2500 ? { name: best[0], min: Math.max(1, Math.round((bestD * 1.3) / 70)) } : null;
   }
-  const metroHtml = (m) => `<span class="metro-m">М</span>${esc(m.name)} · ${m.min} мин пешком`;
+  // Значок метро — нарисованная «М» на красном круге (буква шрифта выглядела кривой)
+  const METRO_ICON = '<svg class="metro-m" viewBox="0 0 20 20" aria-label="Метро"><circle cx="10" cy="10" r="10" fill="#d52b1e"/><path d="M3.9 14.6 7 5.4 10 11.1 13 5.4 16.1 14.6H13.95L12.5 10.25 10 14.2 7.5 10.25 6.05 14.6Z" fill="#fff"/></svg>';
+  const metroHtml = (m) => `${METRO_ICON}${esc(m.name)} · ${m.min} мин пешком`;
 
   function distanceText(d) {
     const dist = d < 1000 ? `${Math.round(d / 10) * 10} м` : `${(d / 1000).toFixed(1).replace('.', ',')} км`;

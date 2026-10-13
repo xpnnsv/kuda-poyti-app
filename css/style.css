@@ -463,19 +463,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .route-done { color: var(--open); }
 /* Метро */
 .metro-m {
-  display: inline-grid;
-  place-items: center;
+  flex: none;
   width: 18px;
   height: 18px;
   margin-right: 6px;
-  border-radius: 50%;
-  background: #d52b1e;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
   vertical-align: -3px;
 }
 .place-info li.metro-row { align-items: center; }
+.place-info .metro-m { margin-right: 0; } /* отступ уже даёт gap строки — текст ровно под адресом */
 .route-metro { margin: 10px 0 0; color: var(--hint); font-size: 13px; font-weight: 700; line-height: 1.7; }
 .season-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; font-weight: 800; line-height: 17px; vertical-align: 1px; }
 .stop-num--me .ic { width: 15px; height: 15px; }
