@@ -73,7 +73,6 @@
     if (p.cup) return `Капучино ${p.cup}`;
     if (p.kind === 'mall') return 'Вход свободный';
     if (p.free) return 'Бесплатно';
-    if (p.metro) return 'Вход по билету на метро';
     return p.cat === 'museum' || p.cat === 'photo' ? 'Цена входа неизвестна' : 'Средний чек неизвестен';
   }
   const priceUnknown = (p) => minPrice(p) === null;
@@ -88,7 +87,6 @@
       const n = parseInt(s.replace(/\s/g, '').match(/\d+/), 10);
       return Number.isFinite(n) ? n : null;
     }
-    if (p.metro) return 100;
     return null;
   }
 

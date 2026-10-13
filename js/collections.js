@@ -9,7 +9,7 @@ window.COLLECTIONS = [
   {
     id: 'rain', emoji: '☔', title: 'Если дождь',
     ids: ['tretyakov', 'pushkin-museum', 'ges2', 'historical', 'darwin', 'planetarium', 'experimentanium',
-      'cosmonautics', 'mamm', 'tsar-maket', 'depo', 'dream-island', 'mayakovskaya'],
+      'cosmonautics', 'mamm', 'tsar-maket', 'depo', 'dream-island'],
   },
   {
     id: 'date', emoji: '💕', title: 'На свидание',

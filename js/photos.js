@@ -74,12 +74,6 @@ window.PLACE_PHOTOS = {
                             "license":  "CC BY-SA 3.0",
                             "page":  "https://commons.wikimedia.org/wiki/File:MIBC_12th_June_2014.jpg"
                         },
-    "komsomolskaya":  {
-                          "src":  "img/places/komsomolskaya.webp",
-                          "author":  "A.Savin",
-                          "license":  "FAL",
-                          "page":  "https://commons.wikimedia.org/wiki/File:MosMetro_KomsomolskayaKL_img2_asv2018-01.jpg"
-                      },
     "bulgakov":  {
                      "src":  "img/places/bulgakov.webp",
                      "author":  "NVO",
@@ -218,12 +212,6 @@ window.PLACE_PHOTOS = {
                        "license":  "CC BY-SA 4.0",
                        "page":  "https://commons.wikimedia.org/wiki/File:%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B0._%D0%A5%D0%BE%D1%85%D0%BB%D0%BE%D0%B2%D1%81%D0%BA%D0%B0%D1%8F_%D0%BF%D0%BB._(%D1%84%D1%80%D0%B0%D0%B3%D0%BC%D0%B5%D0%BD%D1%82_%D1%81%D1%82%D0%B5%D0%BD%D1%8B_%D0%91%D0%B5%D0%BB%D0%BE%D0%B3%D0%BE_%D0%B3%D0%BE%D1%80%D0%BE%D0%B4%D0%B0)_2154.3_e1.jpg"
                    },
-    "mayakovskaya":  {
-                         "src":  "img/places/mayakovskaya.webp",
-                         "author":  "Крылов Иван",
-                         "license":  "CC BY-SA 4.0",
-                         "page":  "https://commons.wikimedia.org/wiki/File:%D0%9C%D0%BE%D1%81%D0%BA%D0%BE%D0%B2%D1%81%D0%BA%D0%BE%D0%B5_%D0%BC%D0%B5%D1%82%D1%80%D0%BE._%D0%A1%D1%82%D0%B0%D0%BD%D1%86%D0%B8%D1%8F_%D0%9C%D0%B0%D1%8F%D0%BA%D0%BE%D0%B2%D1%81%D0%BA%D0%B0%D1%8F.jpg"
-                     },
     "new-tretyakov":  {
                           "src":  "img/places/new-tretyakov.webp",
                           "author":  "Tretyakovgallery",
