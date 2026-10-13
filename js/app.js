@@ -580,8 +580,16 @@
   }
 
   // После движения карты — новая раскладка меток под масштаб
+  let curBounds = null;
   function onMove(view) {
     state.view = view;
+    // рамку «не дальше МКАД» подгоняем под масштаб: так в приближении за МКАД не уехать,
+    // а при полном отдалении Москва остаётся по центру экрана
+    const nb = viewBounds(view.zoom);
+    if (!curBounds || ['south', 'north', 'west', 'east'].some((k) => Math.abs(nb[k] - curBounds[k]) > 0.002)) {
+      curBounds = nb;
+      try { MapView.setBounds(nb); } catch (e) { /* карта ещё не готова */ }
+    }
     const map = $('#map');
     map.classList.toggle('zoom-far', view.zoom < 13.5);
     updateSearchHere();
@@ -1709,6 +1717,28 @@
     return Math.max(cfg.MIN_ZOOM || 9, Math.round(Math.min(zx, zy) * 100) / 100);
   }
 
+  // Рамка, за которую нельзя увести карту: МКАД с небольшим запасом. При самом сильном отдалении
+  // вытянутый экран телефона видит больше, чем МКАД по высоте, — тогда рамку расширяем ровно
+  // настолько, чтобы Москва стояла по центру, а не прижималась к краю
+  // zoom — для какого масштаба: в приближении рамка ровно по МКАД, запас — только у самого отдаления
+  function viewBounds(zoom) {
+    const b = cfg.MAP_BOUNDS;
+    const { w, h } = getMapSize();
+    const scale = 256 * Math.pow(2, Math.max(zoom || 0, maxViewZoom()));
+    const out = { ...b };
+    const lonSpan = (w * 360) / scale;
+    if (lonSpan > b.east - b.west) {
+      const c = (b.east + b.west) / 2;
+      out.west = c - lonSpan / 2 - 0.001; out.east = c + lonSpan / 2 + 0.001;
+    }
+    const mSpan = (h * 2 * Math.PI) / scale, mN = merc(b.north), mS = merc(b.south);
+    if (mSpan > mN - mS) {
+      const c = (mN + mS) / 2, lat = (m) => (Math.atan(Math.exp(m)) * 360) / Math.PI - 90;
+      out.south = lat(c - mSpan / 2) - 0.001; out.north = lat(c + mSpan / 2) + 0.001;
+    }
+    return out;
+  }
+
   // ---------- Позвать друга ----------
   // Ссылка открывает мини-апп сразу на этом месте (нужно «Main Mini App» в @BotFather)
   function sharePlace(p) {
@@ -1767,7 +1797,7 @@
       MapView.setUser(pos.lat, pos.lon, userEl());
       const b = cfg.MAP_BOUNDS;
       if (pos.lat < b.south || pos.lat > b.north || pos.lon < b.west || pos.lon > b.east) {
-        toast('Похоже, ты не в Москве — пока на карте только московские места');
+        toast('Похоже, ты за МКАД — на карте только места внутри МКАД');
       } else {
         MapView.flyTo(pos.lat, pos.lon, 15);
       }
@@ -2098,7 +2128,7 @@
         apiKey: (cfg.YANDEX_MAPS_API_KEY || '').trim(),
         center: cfg.START_CENTER,
         zoom: Math.max(cfg.START_ZOOM, maxViewZoom()),
-        bounds: cfg.MAP_BOUNDS,
+        bounds: viewBounds(),
         minZoom: maxViewZoom(),
         dark: isDark(),
       });
@@ -2112,7 +2142,9 @@
     let resizeTimer;
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { try { MapView.setMinZoom(maxViewZoom()); } catch (e) { /* карта ещё не готова */ } }, 300);
+      resizeTimer = setTimeout(() => {
+        try { curBounds = viewBounds(state.view && state.view.zoom); MapView.setBounds(curBounds); MapView.setMinZoom(maxViewZoom()); } catch (e) { /* карта ещё не готова */ }
+      }, 300);
     });
     MapView.onMove(onMove);
     onMove(MapView.view()); // здесь же и первая расстановка меток

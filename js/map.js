@@ -123,6 +123,10 @@
       this.map.addChild(this.line);
     },
 
+    setBounds(b) {
+      this.map.update({ restrictMapArea: [[b.west, b.south], [b.east, b.north]] });
+    },
+
     setMinZoom(z) {
       this.map.update({ zoomRange: { min: z, max: 21 } });
       if (this.map.zoom < z) this.map.update({ location: { center: this.map.center, zoom: z } });
@@ -194,6 +198,8 @@
 
     setMinZoom(z) { this.map.options.zoomSnap = 0; this.map.setMinZoom(z); },
 
+    setBounds(b) { this.map.setMaxBounds([[b.south, b.west], [b.north, b.east]]); },
+
     setLine(coords) {
       if (this.line) { this.line.remove(); this.line = null; }
       if (!coords || coords.length < 2) return;
@@ -231,6 +237,7 @@
     setUser(lat, lon, el) { this.impl.setUser(lat, lon, el); },
     setDark(dark) { this.impl.setDark(dark); },
     setMinZoom(z) { this.impl.setMinZoom(z); },
+    setBounds(b) { this.impl.setBounds(b); },
     setLine(coords) { try { this.impl.setLine(coords); } catch (e) { console.warn('Линия маршрута:', e); } },
   };
 })();
