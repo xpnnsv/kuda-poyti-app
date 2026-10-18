@@ -2455,6 +2455,25 @@
     } else show();
   }
 
+  // Первый показ эмодзи дорогой: браузер ищет для них шрифт, и шторка с эмодзи («Куда сегодня?»,
+  // «Достижения», «Маршруты») в первый раз открывалась с заминкой. Показываем их заранее, в паузе,
+  // за краем экрана — потом шрифт уже найден
+  function warmEmoji() {
+    const set = new Set();
+    TODAY_Q.forEach((q) => q.opts.forEach((o) => set.add(o.e)));
+    AWARDS.forEach((a) => set.add(a.e));
+    READY_ROUTES.concat(COLLECTIONS).forEach((r) => r.emoji && set.add(r.emoji));
+    '☀️ 🌙 🌤 ⛅ ☁️ 🌫 🌦 🌧 🌨 ⛈ 🌡 ✨ 🗺 🚶 🏅 📍 🤝 🎉 🏆 ✓ ＋'.split(' ').forEach((e) => set.add(e));
+    const d = document.createElement('div');
+    d.setAttribute('aria-hidden', 'true');
+    d.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none';
+    const text = [...set].join(' ');
+    d.innerHTML = [13, 22, 26, 30].map((s) => `<span style="font-size:${s}px">${text}</span>`).join('');
+    document.body.appendChild(d);
+    void d.offsetWidth;
+    setTimeout(() => d.remove(), 1000);
+  }
+
   // ---------- Заставка ----------
   const startedAt = Date.now();
   function hideSplash() {
@@ -2702,6 +2721,7 @@
       render(); syncFilters(); updateFavButton(); updateDraftBadge(); updateAwardBadge(); warmSearchIndex();
       // время и цену готовых маршрутов считаем заранее, в паузе, — «Маршруты» открываются быстрее
       (window.requestIdleCallback || setTimeout)(() => READY_ROUTES.forEach((r) => { const ps = routePlaces(r.ids); if (ps.length > 1) routeStats(ps, null, r); }));
+      (window.requestIdleCallback || setTimeout)(warmEmoji);
     });
     const sp = startParam();
     if (sp.startsWith('r-') || sp.startsWith('m-')) {
