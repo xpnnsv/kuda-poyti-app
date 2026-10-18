@@ -494,6 +494,42 @@
   // Слабый телефон (до 4 ГБ памяти или до 4 ядер) — меньше меток и подписей: карта двигается плавнее
   const LOW_END = (navigator.deviceMemory && navigator.deviceMemory <= 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
 
+  // Лёгкий режим: телефон в энергосбережении (или просто не тянет) — кадры идут реже 40 в секунду.
+  // Тогда плитки карты легче, меток меньше, без пульсации. Замеряем частоту кадров, пока человек
+  // двигает карту, и запоминаем вывод до следующего запуска (плитки меняются только при запуске)
+  let LITE = /[?&]lite=1/.test(location.search);
+  try { LITE = LITE || localStorage.getItem('lite') === '1'; } catch (e) { /* хранилище недоступно */ }
+  document.documentElement.classList.toggle('lite', LITE);
+  const fpsSamples = [];
+  let fpsBusy = false;
+  function measureFps() {
+    if (fpsBusy || fpsSamples.length >= 5) return;
+    fpsBusy = true;
+    const d = [];
+    let last = 0;
+    const end = performance.now() + 1500;
+    const step = (t) => {
+      if (last) d.push(t - last);
+      last = t;
+      if (t < end) { requestAnimationFrame(step); return; }
+      fpsBusy = false;
+      if (d.length < 10) return;
+      d.sort((a, b) => a - b);
+      fpsSamples.push(d[d.length >> 1]);
+      if (fpsSamples.length < 3) return;
+      const med = fpsSamples.slice().sort((a, b) => a - b)[fpsSamples.length >> 1];
+      const slow = med > 25; // меньше 40 кадров в секунду
+      if (slow && !LITE) {
+        LITE = true;
+        document.documentElement.classList.add('lite');
+        render();
+      }
+      try { if (slow) localStorage.setItem('lite', '1'); else if (med < 19) localStorage.removeItem('lite'); } catch (e) { /* хранилище недоступно */ }
+    };
+    requestAnimationFrame(step);
+  }
+  $('#map').addEventListener('pointerdown', measureFps, { passive: true });
+
   function layout(places, view) {
     const { w, h } = getMapSize();
     const b = view.bounds;
@@ -501,8 +537,8 @@
     const far = view.zoom < 13.5;
     const R = far ? 13 : 19;                 // радиус метки, px
     const GAP = far ? 32 : 46;               // минимальное расстояние между центрами меток, px
-    const MAX_MARKERS = LOW_END ? 45 : 70;   // больше меток телефону рисовать тяжело
-    const MAX_LABELS = LOW_END ? 18 : 30;
+    const MAX_MARKERS = LITE ? 30 : LOW_END ? 45 : 70;   // больше меток телефону рисовать тяжело
+    const MAX_LABELS = LITE ? 12 : LOW_END ? 18 : 30;
     const sel = state.selected;
 
     const pts = [];
@@ -2187,6 +2223,7 @@
         bounds: viewBounds(),
         minZoom: maxViewZoom(),
         dark: isDark(),
+        pixelRatio: LITE ? 1.5 : 2,
       });
     } catch (e) {
       console.error(e);

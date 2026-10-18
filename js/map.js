@@ -330,6 +330,11 @@
     moveTimer: null,
 
     async init(el, o) {
+      // Плитки карты не в ×3, а в ×2 (или ×1,5 в лёгком режиме): каждая плитка в 2,25 раза легче
+      // для телефона, а на глаз разница почти не видна. Яндекс берёт качество из devicePixelRatio
+      if (o.pixelRatio && (window.devicePixelRatio || 1) > o.pixelRatio) {
+        try { Object.defineProperty(window, 'devicePixelRatio', { value: o.pixelRatio, configurable: true }); } catch (e) { /* не вышло — останется родное качество */ }
+      }
       await loadScript('https://api-maps.yandex.ru/v3/?apikey=' + encodeURIComponent(o.apiKey) + '&lang=ru_RU');
       await ymaps3.ready;
       if (this.cancelled) return;
