@@ -712,6 +712,14 @@
     else if (was === 'rfilters') { renderRoutes(); openSheet('routes'); }
     // закрыли карточку места, открытую из маршрута, — возвращаемся к маршруту
     else if (was === 'place' && activeRoute) openSheet('route');
+    // карточку открыли из «Куда сегодня?» или достижений — возвращаемся туда же
+    else if (was === 'place' && placeBack) {
+      const back = placeBack;
+      placeBack = null;
+      if (back === 'today') renderToday();
+      else if (back === 'awards') $('#awards-sheet').innerHTML = awardsHtml();
+      openSheet(back);
+    }
   }
 
   // Закрытие шторки свайпом вниз
@@ -815,7 +823,7 @@
         <span class="tag${priceUnknown(p) ? ' tag--unknown' : ''}">${priceText(p)}</span>
         <span class="tag">${SETTING_TEXT[p.setting] || ''}</span>
         ${d !== null ? `<span class="tag">${distanceText(d)}</span>` : ''}
-        ${visited.has(p.id) ? '<span class="tag tag--open">✓ Ты здесь был</span>' : ''}
+        ${p.source === 'live' ? '' : visitButtonHtml(p)}
       </div>
       ${p.desc ? `<p class="place-desc">${esc(p.desc)}</p>` : ''}
       ${insideHtml(p)}
@@ -841,6 +849,7 @@
 
   function openPlace(p, opts) {
     opts = opts || {};
+    placeBack = null;
     state.selected = p;
     state.lucky = !!opts.lucky;
     $('#place-sheet').innerHTML = placeHtml(p);
@@ -1200,6 +1209,7 @@
       if (Array.isArray(vis)) vis.forEach((id) => visited.add(id));
       if (Array.isArray(done)) routesDone = done;
       updateDraftBadge();
+      updateAwardBadge();
     });
   }
 
@@ -1418,16 +1428,21 @@
   }
 
   function toggleVisited(id) {
+    const before = awardsGot(awardStats());
     if (visited.has(id)) visited.delete(id); else visited.add(id);
     haptic.tap();
     const r = activeRoute;
+    let routeDone = false;
     if (r && r.ids.every((x) => visited.has(x)) && !routesDone.some((d) => d.id === r.id && Date.now() - d.ts < 12 * 3600000)) {
       routesDone.push({ id: r.id, title: r.title, ts: Date.now() });
       haptic.notify('success');
       const n = routesDone.length;
       toast(`Маршрут пройден! Это твой ${n}-й маршрут 🎉`);
+      routeDone = true;
     }
     saveVisited();
+    checkNewAwards(before, routeDone ? 2600 : 0);
+    return routeDone;
   }
 
   // Метро у старта и финиша маршрута
@@ -1905,10 +1920,13 @@
   function buildChips() {
     const list = [{ id: 'all', label: 'Все' }].concat(Object.keys(CATS).map((id) => ({ id, label: CATS[id].short || CATS[id].label, adult: CATS[id].adult })));
     const box = $('#chips');
-    box.innerHTML = list.map((c) =>
+    // первой — «Куда сегодня?» с погодой: это не категория, а подбор мест
+    box.innerHTML = '<button type="button" class="chip chip--today" data-today></button>' + list.map((c) =>
       `<button type="button" class="chip cat--${c.id}" data-cat="${c.id}">${icon(c.id)}${c.label}${c.adult ? AGE_BADGE : ''}</button>`
     ).join('');
+    updateTodayChip();
     box.addEventListener('click', (e) => {
+      if (e.target.closest('[data-today]')) { openToday(); return; }
       const b = e.target.closest('.chip');
       if (!b) return;
       const cat = b.dataset.cat;
@@ -1932,7 +1950,7 @@
   }
 
   function syncChips() {
-    document.querySelectorAll('.chip').forEach((b) => {
+    document.querySelectorAll('.chip[data-cat]').forEach((b) => {
       const on = b.dataset.cat === 'all' ? !state.cats.size : state.cats.has(b.dataset.cat);
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', on);
@@ -2016,6 +2034,427 @@
     syncFilters();
   }
 
+  // ---------- Погода (Open-Meteo: бесплатно, без ключа и регистрации) ----------
+  // Погоду берём для центра Москвы — где ты, никуда не отправляется
+  const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=55.75&longitude=37.62'
+    + '&current=temperature_2m,weather_code,is_day&hourly=precipitation_probability,weather_code&forecast_hours=8&timezone=Europe%2FMoscow';
+  // Код погоды (WMO) → значок и слова; wet — осадки
+  function weatherKind(code, day) {
+    if (code === 0) return { e: day ? '☀️' : '🌙', t: 'ясно' };
+    if (code === 1) return { e: day ? '🌤' : '🌙', t: 'почти ясно' };
+    if (code === 2) return { e: '⛅', t: 'переменная облачность' };
+    if (code === 3) return { e: '☁️', t: 'пасмурно' };
+    if (code === 45 || code === 48) return { e: '🌫', t: 'туман' };
+    if (code >= 51 && code <= 57) return { e: '🌦', t: 'морось', wet: true };
+    if (code >= 61 && code <= 67) return { e: '🌧', t: code === 65 ? 'сильный дождь' : 'дождь', wet: true };
+    if (code >= 71 && code <= 77) return { e: '🌨', t: 'снег', wet: true };
+    if (code >= 80 && code <= 82) return { e: '🌧', t: 'ливень', wet: true };
+    if (code === 85 || code === 86) return { e: '🌨', t: 'снегопад', wet: true };
+    if (code >= 95) return { e: '⛈', t: 'гроза', wet: true };
+    return { e: '🌡', t: '' };
+  }
+
+  let weather = null; // { temp, e, t, bad, tip }; bad — непогода: лучше места под крышей
+  function parseWeather(d) {
+    const c = d.current, k = weatherKind(c.weather_code, c.is_day);
+    const temp = Math.round(c.temperature_2m);
+    // осадки в ближайшие 6 часов
+    const h = d.hourly || {}, nowH = c.time.slice(0, 13);
+    let soon = null, ahead = 0;
+    for (let i = 0; i < (h.time || []).length && ahead < 6; i++) {
+      if (h.time[i].slice(0, 13) <= nowH) continue;
+      ahead++;
+      if (weatherKind(h.weather_code[i]).wet || (h.precipitation_probability[i] || 0) >= 60) { soon = { at: h.time[i].slice(11, 16), ahead }; break; }
+    }
+    let tip, bad = false;
+    if (k.wet) { tip = `Сейчас ${k.t} — лучше места под крышей`; bad = true; }
+    else if (temp <= -10) { tip = 'Морозно — грейся в кафе и музеях'; bad = true; }
+    else if (soon) { tip = `Около ${soon.at} обещают осадки — возьми зонт или выбирай места под крышей`; bad = soon.ahead <= 3; }
+    else if (temp >= 28) tip = 'Жарко — ищи тень в парках или прохладу в музеях';
+    else tip = c.is_day ? 'Без осадков — хорошо для прогулки' : 'Без осадков — можно погулять по вечернему городу';
+    return { temp: (temp > 0 ? '+' : temp < 0 ? '−' : '') + Math.abs(temp) + '°', e: k.e, t: k.t, bad, tip };
+  }
+
+  // Прогноз храним 20 минут, чтобы не спрашивать при каждом открытии
+  function loadWeather() {
+    const cached = readJson('weather', null);
+    if (cached && cached.d && Date.now() - cached.ts < 20 * 60000) {
+      try { weather = parseWeather(cached.d); updateTodayChip(); return; } catch (e) { /* испорченный кэш — спросим заново */ }
+    }
+    if (!window.fetch) return;
+    const ctl = window.AbortController ? new AbortController() : null;
+    const timer = setTimeout(() => ctl && ctl.abort(), 8000);
+    fetch(WEATHER_URL, ctl ? { signal: ctl.signal } : {})
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+      .then((d) => {
+        weather = parseWeather(d);
+        try { localStorage.setItem('weather', JSON.stringify({ ts: Date.now(), d })); } catch (e) { /* хранилище недоступно */ }
+        updateTodayChip();
+        if (openSheetName === 'today') renderToday();
+      })
+      .catch(() => { /* без погоды всё работает, просто без подсказки */ })
+      .finally(() => clearTimeout(timer));
+  }
+
+  function updateTodayChip() {
+    const b = $('#chips [data-today]');
+    if (b) b.innerHTML = `<span class="chip-wx">${weather ? `${weather.e} ${weather.temp}` : '✨'}</span>Куда сегодня?`;
+  }
+
+  const inMkad = (pos) => { const b = cfg.MAP_BOUNDS; return pos.lat > b.south && pos.lat < b.north && pos.lon > b.west && pos.lon < b.east; };
+  const mapCenter = () => { const v = state.view.bounds; return { lat: (v.north + v.south) / 2, lon: (v.east + v.west) / 2 }; };
+
+  // ---------- «Куда сегодня?»: три вопроса → места рядом с учётом погоды ----------
+  const TODAY_Q = [
+    { key: 'mood', title: 'Чего хочется?', opts: [
+      { v: 'coffee', e: '☕', label: 'Кофе и поболтать', cats: ['coffee'] },
+      { v: 'food', e: '🍽', label: 'Вкусно поесть', cats: ['food'] },
+      { v: 'walk', e: '🌳', label: 'Погулять', cats: ['photo'] },
+      { v: 'culture', e: '🏛', label: 'Что-то культурное', cats: ['museum'] },
+      { v: 'shop', e: '🛍', label: 'Шопинг', cats: ['mall'] },
+      { v: 'bar', e: '🍸', label: 'Бар или кальян', cats: ['night'], adult: true },
+      { v: 'any', e: '🎲', label: 'Удиви меня', cats: ['coffee', 'food', 'photo', 'museum', 'mall'] },
+    ] },
+    { key: 'time', title: 'Сколько есть времени?', opts: [
+      { v: 'short', e: '⏱', label: 'Около часа', radius: 1500, n: 3 },
+      { v: 'mid', e: '🕑', label: '2–3 часа', radius: 3000, n: 3 },
+      { v: 'long', e: '☀️', label: 'Полдня и больше', radius: 5000, n: 4 },
+    ] },
+    { key: 'budget', title: 'Бюджет на человека?', opts: [
+      { v: 0, e: '🆓', label: 'Бесплатно' },
+      { v: 1000, e: '💸', label: 'До 1 000 ₽' },
+      { v: 2500, e: '💳', label: 'До 2 500 ₽' },
+      { v: null, e: '💎', label: 'Неважно' },
+    ] },
+  ];
+  const PAID_MOODS = ['coffee', 'food', 'bar']; // тут «бесплатно» не бывает — такой ответ не предлагаем
+  const todayOpt = (key, v) => TODAY_Q.find((q) => q.key === key).opts.find((o) => o.v === v);
+  let today = { step: 0, ans: {}, picks: null, seen: new Set() };
+  let placeBack = null; // карточку места открыли из «Куда сегодня?» — после неё вернёмся туда
+
+  function todayHtml() {
+    const head = `<div class="sheet-handle"></div>
+      <div class="place-head">
+        <div class="place-title"><h2>Куда сегодня?</h2></div>
+        <div class="head-actions"><button class="icon-btn" type="button" data-today="close" aria-label="Закрыть">${icon('close')}</button></div>
+      </div>`;
+    const wx = weather ? `<div class="wx${weather.bad ? ' wx--bad' : ''}"><span class="wx-e">${weather.e}</span>
+        <span class="wx-text"><b>Сейчас в Москве ${weather.temp}${weather.t ? ', ' + weather.t : ''}</b><small>${esc(weather.tip)}</small></span></div>` : '';
+    if (today.step < TODAY_Q.length) {
+      const q = TODAY_Q[today.step];
+      const opts = q.opts.filter((o) => !(q.key === 'budget' && o.v === 0 && PAID_MOODS.includes(today.ans.mood)));
+      return head + wx + `<div class="today-dots">${TODAY_Q.map((_, i) => `<i${i <= today.step ? ' class="on"' : ''}></i>`).join('')}</div>
+        <h3 class="today-q">${q.title} <small>${today.step + 1} из ${TODAY_Q.length}</small></h3>
+        <div class="today-opts">${opts.map((o) => `<button type="button" class="today-opt" data-answer="${q.key}" data-val="${o.v}">
+          <span class="today-e">${o.e}</span><b>${o.label}${o.adult ? AGE_BADGE : ''}</b></button>`).join('')}</div>
+        ${today.step ? '<div class="draft-links"><button type="button" data-today="back">← Назад</button></div>' : ''}`;
+    }
+    if (!today.picks) return head + wx + '<p class="empty">Подбираю места…</p>';
+    const a = today.ans, ps = today.picks;
+    const sum = ['mood', 'time', 'budget'].map((k) => { const o = todayOpt(k, a[k]); return `<span class="tag">${o.e} ${o.label}</span>`; }).join('');
+    const rows = ps.map((p) => rowHtml(p, null, distanceText(distance(today.from, p)) + stopPrice(p))).join('');
+    return head + wx + `<div class="tags today-sum">${sum}</div>
+      ${today.note ? `<p class="near-note">${esc(today.note)}</p>` : ''}
+      ${ps.length
+        ? `<div class="section-title">Вот что подойдёт <small>${today.me ? 'рядом с тобой' : 'от центра карты'}</small></div><div class="rows">${rows}</div>`
+        : '<p class="empty">Под такие ответы рядом ничего не нашлось — попробуй другой бюджет или время.</p>'}
+      <div class="place-actions">
+        ${ps.length >= 2 && a.time !== 'short' ? '<button class="btn btn-primary" type="button" data-today="route">Маршрут из них</button>' : ''}
+        ${ps.length ? `<button class="btn btn-secondary" type="button" data-today="more">${icon('dice')} Другие</button>` : ''}
+      </div>
+      <div class="draft-links"><button type="button" data-today="restart">Ответить заново</button></div>`;
+  }
+
+  function renderToday() { $('#today-sheet').innerHTML = todayHtml(); }
+
+  function openToday() {
+    haptic.tap();
+    renderToday();
+    openSheet('today');
+    if (!weather) loadWeather();
+  }
+
+  // Подбор: открыто сейчас (и хватит времени побыть), по бюджету, недалеко; в непогоду — под крышей.
+  // Из лучших берём случайные, чтобы «Другие» давали новые варианты
+  function pickToday() {
+    const a = today.ans, mood = todayOpt('mood', a.mood), time = todayOpt('time', a.time);
+    const bad = !!(weather && weather.bad);
+    const now = new Date();
+    const fits = (p) => {
+      if (!mood.cats.includes(p.cat) || (p.cat === 'night' && !adultOk)) return false;
+      if (p.rating && p.rating < 4.4) return false;
+      if (a.budget !== null) { const m = minPrice(p); if (m === null || m > a.budget) return false; }
+      if (bad && a.mood === 'any' && isOutdoor(p)) return false; // «Удиви меня» в непогоду — только под крышей
+      return true;
+    };
+    const openFor = (p) => {
+      const left = Hours.minutesLeft(p.hours, now);
+      if (left === null) return p.cat === 'photo'; // часы неизвестны — годится только для улиц и парков
+      return left >= Math.min(60, stayFor(p) * 0.7);
+    };
+    const score = (p) => Math.sqrt(p.pop || 1) * (p.rating >= 4.8 ? 1.3 : 1)
+      * (visited.has(p.id) ? 0.4 : 1)                      // где уже был — пореже
+      * (bad && a.mood === 'walk' && isOutdoor(p) ? 0.3 : 1) // в дождь прогулки под крышей — выше
+      / (1 + distance(today.from, p) / 700);
+    let cands = [];
+    for (const r of [time.radius, time.radius * 2, time.radius * 4]) {
+      cands = curated.filter((p) => fits(p) && distance(today.from, p) <= r && openFor(p));
+      if (cands.length >= time.n * 2) break;
+    }
+    today.note = '';
+    if (!cands.length) {
+      // поздно ночью почти всё закрыто — покажем, что откроется в ближайшие часы
+      cands = curated.filter((p) => fits(p) && distance(today.from, p) <= time.radius * 2 && Hours.minutesToOpen(p.hours, now) !== null && Hours.minutesToOpen(p.hours, now) <= 720);
+      if (cands.length) today.note = 'Сейчас почти всё закрыто — вот что откроется в ближайшие часы';
+    } else if (bad && (a.mood === 'walk' || a.mood === 'any')) today.note = 'Погода не для прогулок — сверху места под крышей';
+    let top = cands.sort((x, y) => score(y) - score(x)).slice(0, 14);
+    const fresh = top.filter((p) => !today.seen.has(p.id));
+    if (fresh.length >= time.n) top = fresh;
+    // перемешиваем лучшие; в «Удиви меня» — места разных типов
+    for (let i = top.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [top[i], top[j]] = [top[j], top[i]]; }
+    const picks = [];
+    if (a.mood === 'any') for (const p of top) if (picks.length < time.n && !picks.some((q) => q.cat === p.cat)) picks.push(p);
+    for (const p of top) if (picks.length < time.n && !picks.includes(p)) picks.push(p);
+    // по порядку обхода: каждый раз — ближайшее из оставшихся
+    const ordered = [];
+    let cur = today.from;
+    while (picks.length) {
+      let best = 0;
+      picks.forEach((p, i) => { if (distance(cur, p) < distance(cur, picks[best])) best = i; });
+      cur = picks.splice(best, 1)[0];
+      ordered.push(cur);
+    }
+    ordered.forEach((p) => today.seen.add(p.id));
+    today.picks = ordered;
+  }
+
+  async function finishToday() {
+    today.picks = null;
+    today.seen = new Set();
+    renderToday();
+    let from = null;
+    try {
+      const pos = state.user || (await Promise.race([getPosition(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]));
+      if (inMkad(pos)) { from = pos; state.user = pos; MapView.setUser(pos.lat, pos.lon, userEl()); }
+    } catch (e) { /* без геолокации — от центра карты */ }
+    today.me = !!from;
+    today.from = from || mapCenter();
+    pickToday();
+    if (openSheetName === 'today') renderToday();
+  }
+
+  function answerToday(key, raw) {
+    const q = TODAY_Q[today.step];
+    if (!q || q.key !== key) return;
+    const o = q.opts.find((x) => String(x.v) === raw);
+    if (!o) return;
+    const go = () => {
+      today.ans[key] = o.v;
+      today.step++;
+      haptic.tap();
+      if (today.step >= TODAY_Q.length) finishToday();
+      else renderToday();
+      $('#today-sheet').scrollTop = 0;
+    };
+    if (o.adult && !adultOk) askAdult().then((ok) => { openSheet('today'); if (ok) go(); });
+    else go();
+  }
+
+  function todayRoute() {
+    const ps = today.picks || [];
+    if (ps.length < 2) return;
+    const mood = todayOpt('mood', today.ans.mood);
+    showRoute({ id: 'today', title: `Куда сегодня: ${mood.label.toLowerCase()}`, emoji: mood.e, ids: ps.map((p) => p.id), shared: true, fromMe: today.me ? today.from : null });
+  }
+
+  function onTodayClick(e) {
+    const ans = e.target.closest('[data-answer]');
+    if (ans) { answerToday(ans.dataset.answer, ans.dataset.val); return; }
+    const act = e.target.closest('[data-today]');
+    if (act) {
+      const x = act.dataset.today;
+      if (x === 'close') closeSheets();
+      else if (x === 'back') { today.step = Math.max(0, today.step - 1); haptic.tap(); renderToday(); }
+      else if (x === 'restart') { today = { step: 0, ans: {}, picks: null, seen: new Set() }; haptic.tap(); renderToday(); }
+      else if (x === 'more') { haptic.impact(); pickToday(); renderToday(); }
+      else if (x === 'route') { haptic.impact(); todayRoute(); }
+      return;
+    }
+    const row = e.target.closest('[data-id]');
+    const p = row && byId.get(row.dataset.id);
+    if (p) { haptic.tap(); openPlace(p, { focus: true }); placeBack = 'today'; }
+  }
+
+  // ---------- Достижения ----------
+  // Считаются по отмеченным местам: «Отметить посещение» в карточке места и галочки в маршрутах
+  const CENTER_DISTRICTS = new Set(['район Арбат', 'Басманный район', 'район Замоскворечье', 'Красносельский район', 'Мещанский район',
+    'Пресненский район', 'Таганский район', 'Тверской район', 'район Хамовники', 'район Якиманка']);
+  const AWARDS = [
+    { id: 'first', e: '👣', title: 'Первый шаг', text: 'Первое место', of: 'places', need: 1 },
+    { id: 'places10', e: '🧭', title: 'Исследователь', text: '10 мест', of: 'places', need: 10 },
+    { id: 'places50', e: '🏆', title: 'Знаток Москвы', text: '50 мест', of: 'places', need: 50 },
+    { id: 'coffee', e: '☕', title: 'Кофеман', text: '5 кофеен', of: 'coffee', need: 5 },
+    { id: 'food', e: '🍽', title: 'Гурман', text: '5 мест с едой', of: 'food', need: 5 },
+    { id: 'museum', e: '🏛', title: 'Ценитель искусства', text: '5 музеев', of: 'museum', need: 5 },
+    { id: 'photo', e: '📸', title: 'Фотограф', text: '10 красивых мест', of: 'photo', need: 10 },
+    { id: 'mall', e: '🛍', title: 'Шопоголик', text: '3 ТЦ или фудкорта', of: 'mall', need: 3 },
+    { id: 'night', e: '🍸', title: 'Ночная жизнь', text: '3 бара', of: 'night', need: 3, adult: true },
+    { id: 'center', e: '🏰', title: 'Сердце города', text: '10 мест в центре', of: 'center', need: 10 },
+    { id: 'districts5', e: '🗺', title: 'Путешественник', text: '5 районов', of: 'districts', need: 5 },
+    { id: 'districts20', e: '🌍', title: 'Вся Москва', text: '20 районов', of: 'districts', need: 20 },
+    { id: 'route1', e: '🚶', title: 'На маршруте', text: 'Первый маршрут', of: 'routes', need: 1 },
+    { id: 'route5', e: '🥾', title: 'Бывалый', text: '5 маршрутов', of: 'routes', need: 5 },
+  ];
+  const awardsShown = () => AWARDS.filter((a) => !a.adult || adultOk);
+
+  function awardStats() {
+    const s = { places: 0, districts: 0, center: 0, routes: new Set(routesDone.map((d) => d.id)).size, coffee: 0, food: 0, museum: 0, photo: 0, mall: 0, night: 0 };
+    const ds = new Set();
+    for (const id of visited) {
+      const p = byId.get(id);
+      if (!p) continue;
+      s.places++;
+      s[p.cat] = (s[p.cat] || 0) + 1;
+      if (p.district) { ds.add(p.district); if (CENTER_DISTRICTS.has(p.district)) s.center++; }
+    }
+    s.districts = ds.size;
+    return s;
+  }
+  const awardsGot = (s) => new Set(awardsShown().filter((a) => s[a.of] >= a.need).map((a) => a.id));
+
+  // Сколько всего районов с нашими местами — для «открыто районов: 7 из …»
+  let districtTotal = 0, districtTotalFor = 0;
+  function totalDistricts() {
+    if (districtTotalFor !== curated.length) { districtTotal = new Set(curated.map((p) => p.district).filter(Boolean)).size; districtTotalFor = curated.length; }
+    return districtTotal;
+  }
+
+  function updateAwardBadge() {
+    const n = awardsGot(awardStats()).size;
+    $('#award-count').textContent = n;
+    $('#award-count').hidden = !n;
+    $('#open-awards').classList.toggle('has-favs', n > 0);
+  }
+
+  function awardsHtml() {
+    const s = awardStats(), got = awardsGot(s), list = awardsShown();
+    const total = totalDistricts();
+    const bar = (v, max) => `<div class="aw-bar"><i style="width:${Math.min(100, (v / max) * 100)}%"></i></div>`;
+    const badges = list.map((a) => {
+      const on = got.has(a.id), v = Math.min(s[a.of] || 0, a.need);
+      return `<div class="award${on ? ' award--on' : ''}"><span class="award-e">${a.e}</span><b>${a.title}</b>
+        <small>${on ? 'Получено' : a.text}</small>${on || a.need === 1 ? '' : `<div class="aw-mini">${bar(v, a.need)}<em>${v}/${a.need}</em></div>`}</div>`;
+    }).join('');
+    const been = [...visited].reverse().map((id) => byId.get(id)).filter(Boolean);
+    return `<div class="sheet-handle"></div>
+      <div class="place-head">
+        <div class="place-title"><h2>Мои достижения</h2></div>
+        <div class="head-actions"><button class="icon-btn" type="button" data-awards="close" aria-label="Закрыть">${icon('close')}</button></div>
+      </div>
+      <div class="aw-stats">
+        <div class="aw-stat"><b>${s.places}</b><small>${plural(s.places, 'место', 'места', 'мест')}</small></div>
+        <div class="aw-stat"><b>${s.districts}</b><small>${plural(s.districts, 'район', 'района', 'районов')}</small></div>
+        <div class="aw-stat"><b>${s.routes}</b><small>${plural(s.routes, 'маршрут', 'маршрута', 'маршрутов')}</small></div>
+      </div>
+      ${total ? `<div class="aw-progress"><div class="f-label budget-head">Открыто районов Москвы <b>${s.districts} из ${total}</b></div>${bar(s.districts, total)}</div>` : ''}
+      <div class="section-title">Значки <small>${got.size} из ${list.length}</small></div>
+      <div class="awards">${badges}</div>
+      <div class="section-title">Посещённые места${been.length ? ` <small>${been.length}</small>` : ''}</div>
+      ${been.length
+        ? `<div class="rows">${been.slice(0, 60).map((p) => rowHtml(p, null, p.district || p.address)).join('')}</div>`
+        : '<p class="empty">Пока пусто. Открой место на карте и нажми «Отметить посещение» — или ставь галочки, когда идёшь по маршруту.</p>'}`;
+  }
+
+  function openAwards() {
+    haptic.tap();
+    $('#awards-sheet').innerHTML = awardsHtml();
+    openSheet('awards');
+  }
+
+  // Новый значок после отметки — поздравляем (если только что пройден маршрут — чуть позже, после его тоста)
+  function checkNewAwards(before, delay) {
+    const after = awardsGot(awardStats());
+    const fresh = awardsShown().find((a) => after.has(a.id) && !before.has(a.id));
+    updateAwardBadge();
+    if (fresh) setTimeout(() => { haptic.notify('success'); toast(`${fresh.e} Новый значок: «${fresh.title}»!`); }, delay || 0);
+  }
+
+  function visitButtonHtml(p) {
+    const on = visited.has(p.id);
+    return `<button class="tag tag--btn${on ? ' tag--open' : ''}" type="button" data-action="visit" aria-pressed="${on}">${on ? '✓ Посещено' : '＋ Отметить посещение'}</button>`;
+  }
+
+  // ---------- Знакомство при первом запуске ----------
+  const ONBOARD = [
+    { e: '🗺', title: 'Лучшие места Москвы на одной карте', text: 'Почти 2 000 кафе, музеев, парков и красивых мест внутри МКАД — с высокой оценкой в Яндекс Картах. Нажми на метку: часы работы, цены и как добраться.' },
+    { e: '✨', title: 'Не знаешь, куда пойти?', text: 'Нажми «Куда сегодня?» над картой: три вопроса — и подберу места рядом с учётом погоды. А кубик внизу выберет место наугад.' },
+    { e: '🚶', title: 'Рядом и маршруты', text: '«Рядом» покажет, что вокруг тебя. В «Маршрутах» — готовые прогулки, или собери свою из любых мест.' },
+    { e: '🏅', title: 'Собирай значки', text: 'Отмечай посещённые места — за них дают значки, а на карте Москвы открываются новые районы. Любимое сохраняй в ❤️.' },
+  ];
+  let obIndex = 0;
+
+  function markOnboarded() {
+    try { localStorage.setItem('onboarded', '1'); } catch (e) { /* хранилище недоступно */ }
+    if (supports('6.9')) tg.CloudStorage.setItem('onboarded', '1');
+  }
+
+  function showOnboardSlide(i) {
+    obIndex = Math.max(0, Math.min(ONBOARD.length - 1, i));
+    const ob = $('#onboard');
+    ob.querySelector('.onboard-track').style.transform = `translateX(${-obIndex * 100}%)`;
+    ob.querySelectorAll('.onboard-dots i').forEach((d, k) => d.classList.toggle('on', k === obIndex));
+    ob.querySelector('.onboard-next').textContent = obIndex === ONBOARD.length - 1 ? 'Начать' : 'Далее';
+    ob.querySelector('.onboard-skip').style.visibility = obIndex === ONBOARD.length - 1 ? 'hidden' : '';
+  }
+
+  function closeOnboard() {
+    const ob = $('#onboard');
+    ob.classList.remove('show');
+    markOnboarded();
+    setTimeout(() => { ob.hidden = true; }, 350);
+  }
+
+  function openOnboard() {
+    const ob = $('#onboard');
+    ob.querySelector('.onboard-track').innerHTML = ONBOARD.map((s) => `<div class="onboard-slide">
+        <div class="onboard-art">${s.e}</div><h2>${s.title}</h2><p>${s.text}</p></div>`).join('');
+    ob.querySelector('.onboard-dots').innerHTML = ONBOARD.map(() => '<i></i>').join('');
+    showOnboardSlide(0);
+    ob.hidden = false;
+    void ob.offsetWidth;
+    ob.classList.add('show');
+    ob.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-ob]');
+      if (!b) return;
+      haptic.tap();
+      if (b.dataset.ob === 'skip' || obIndex === ONBOARD.length - 1) closeOnboard();
+      else showOnboardSlide(obIndex + 1);
+    });
+    // листание пальцем
+    let x0 = null;
+    ob.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+    ob.addEventListener('touchend', (e) => {
+      if (x0 === null) return;
+      const dx = e.changedTouches[0].clientX - x0;
+      x0 = null;
+      if (Math.abs(dx) > 50) { haptic.tap(); showOnboardSlide(obIndex + (dx < 0 ? 1 : -1)); }
+    });
+  }
+
+  // Показываем один раз; в Telegram помним и в облаке — на другом телефоне не покажем снова
+  function maybeOnboard() {
+    let done = false;
+    try { done = localStorage.getItem('onboarded') === '1'; } catch (e) { /* хранилище недоступно */ }
+    if (done || /[?&]onboard=0/.test(location.search)) return;
+    const show = () => setTimeout(() => { if (!openSheetName) openOnboard(); else markOnboarded(); }, 900);
+    if (supports('6.9')) {
+      tg.CloudStorage.getItem('onboarded', (err, v) => {
+        if (!err && v === '1') { try { localStorage.setItem('onboarded', '1'); } catch (e) { /* хранилище недоступно */ } return; }
+        show();
+      });
+    } else show();
+  }
+
   // ---------- Заставка ----------
   const startedAt = Date.now();
   function hideSplash() {
@@ -2056,6 +2495,14 @@
       $('#search-input').focus();
     });
     $('#open-favs').addEventListener('click', () => { haptic.tap(); renderFavs(); openSheet('favs'); });
+    $('#open-awards').addEventListener('click', openAwards);
+    $('#today-sheet').addEventListener('click', onTodayClick);
+    $('#awards-sheet').addEventListener('click', (e) => {
+      if (e.target.closest('[data-awards="close"]')) { closeSheets(); return; }
+      const row = e.target.closest('[data-id]');
+      const p = row && byId.get(row.dataset.id);
+      if (p) { haptic.tap(); openPlace(p, { focus: true }); placeBack = 'awards'; }
+    });
     $('#coll-close').addEventListener('click', closeCollection);
     $('#near-tabs').innerHTML = NEAR_TABS.map((t) => `<button type="button" class="seg-btn" data-v="${t.v}">${t.label}</button>`).join('');
     $('#near-tabs').addEventListener('click', (e) => {
@@ -2194,6 +2641,7 @@
     updateThemeButton();
     updateFavButton();
     updateDraftBadge();
+    updateAwardBadge();
     loadCloudTheme();
     loadCloudFavs();
     loadCloudRoutes();
@@ -2209,6 +2657,12 @@
       else if (a.dataset.action === 'fav' && p) { toggleFav(p); a.outerHTML = favButtonHtml(p); }
       else if (a.dataset.action === 'share' && p) sharePlace(p);
       else if (a.dataset.action === 'add-route' && p) { toggleDraft(p); a.outerHTML = draftButtonHtml(p); }
+      else if (a.dataset.action === 'visit' && p) {
+        const on = !visited.has(p.id);
+        const routeDone = toggleVisited(p.id);
+        a.outerHTML = visitButtonHtml(p);
+        if (on && !routeDone) toast('Отмечено! Все места — в «Достижениях» 🏆');
+      }
       else if (a.dataset.action === 'route' && p) { haptic.impact(); openLink(routeUrl(p)); }
       else if (a.dataset.action === 'site') openLink(a.dataset.url);
       else if (a.dataset.action === 'yandex' && p) { haptic.impact(); openLink(yandexPlaceUrl(p)); }
@@ -2245,7 +2699,7 @@
     // Ссылка от друга (startapp=p-<id>) — сразу открываем это место.
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
     const districtsReady = loadDistrictPlaces().then(() => {
-      render(); syncFilters(); updateFavButton(); updateDraftBadge(); warmSearchIndex();
+      render(); syncFilters(); updateFavButton(); updateDraftBadge(); updateAwardBadge(); warmSearchIndex();
       // время и цену готовых маршрутов считаем заранее, в паузе, — «Маршруты» открываются быстрее
       (window.requestIdleCallback || setTimeout)(() => READY_ROUTES.forEach((r) => { const ps = routePlaces(r.ids); if (ps.length > 1) routeStats(ps, null, r); }));
     });
@@ -2270,7 +2724,8 @@
     } else if (sp === 'routes' || new URLSearchParams(location.search).get('routes') === '1') {
       // кнопка «🚶 Маршруты» в приветствии бота — сразу открываем список маршрутов
       districtsReady.then(() => setTimeout(() => openRoutes('ready'), 400));
-    }
+    } else maybeOnboard(); // по ссылке от друга знакомство не показываем — человек пришёл за конкретным
+    loadWeather();
   }
 
   main();

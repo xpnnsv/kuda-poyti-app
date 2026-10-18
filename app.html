@@ -9,7 +9,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <!-- Версия файлов: tools/publish.ps1 подставляет сюда время публикации -->
-  <script>window.APP_VERSION = '202610182347';</script>
+  <script>window.APP_VERSION = '202610190004';</script>
   <!-- Заранее открываем соединения с серверами карты, шрифтов и Telegram — быстрее запуск -->
   <link rel="preconnect" href="https://api-maps.yandex.ru" crossorigin>
   <link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin>
@@ -22,7 +22,7 @@
   <title>Куда пойти</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4C20.4 4 11 13 11 24.3 11 39.5 32 60 32 60s21-20.5 21-35.7C53 13 43.6 4 32 4z' fill='%23ff4059'/%3E%3Ccircle cx='32' cy='24' r='8' fill='%23fff'/%3E%3C/svg%3E">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=202610182347">
+  <link rel="stylesheet" href="css/style.css?v=202610190004">
 </head>
 <body>
   <!-- Иконки: один набор на всё приложение (метки, кнопки, карточки) -->
@@ -50,6 +50,7 @@
       <symbol id="i-filters" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="15" cy="7" r="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="9" cy="12" r="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="17" cy="17" r="2" stroke="currentColor" stroke-width="2" fill="none"/></symbol>
       <symbol id="i-dice" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="9" r="1.4" fill="currentColor"/><circle cx="15" cy="15" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="15" cy="9" r="1.4" fill="currentColor"/><circle cx="9" cy="15" r="1.4" fill="currentColor"/></symbol>
       <symbol id="i-locate" viewBox="0 0 24 24"><path d="M20 4L4 11l6.5 2.5L13 20z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7.5 4h9v5.5a4.5 4.5 0 0 1-9 0zM7.5 6H5a2.5 2.5 0 0 0 2.9 4.2M16.5 6H19a2.5 2.5 0 0 1-2.9 4.2M12 14v3.5M8.5 20.5h7M9.5 20.5c0-1.8 1-3 2.5-3s2.5 1.2 2.5 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     </defs>
   </svg>
 
@@ -82,6 +83,10 @@
       <button id="open-favs" class="search-fav" type="button" aria-label="Избранное">
         <svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg>
         <span id="fav-count" class="fav-count" hidden>0</span>
+      </button>
+      <button id="open-awards" class="search-fav" type="button" aria-label="Мои достижения">
+        <svg class="ic" aria-hidden="true"><use href="#i-trophy"/></svg>
+        <span id="award-count" class="fav-count" hidden>0</span>
       </button>
     </div>
     <nav id="chips" class="chips" aria-label="Категории"></nav>
@@ -238,16 +243,30 @@
   <!-- Карточка места -->
   <section id="place-sheet" class="sheet" aria-label="Место"></section>
 
+  <!-- «Куда сегодня?»: погода и три вопроса -->
+  <section id="today-sheet" class="sheet sheet--tall" aria-label="Куда сегодня"></section>
+
+  <!-- Достижения -->
+  <section id="awards-sheet" class="sheet sheet--tall" aria-label="Мои достижения"></section>
+
+  <!-- Знакомство при первом запуске -->
+  <div id="onboard" class="onboard" role="dialog" aria-label="Знакомство с приложением" hidden>
+    <button class="onboard-skip" type="button" data-ob="skip">Пропустить</button>
+    <div class="onboard-view"><div class="onboard-track"></div></div>
+    <div class="onboard-dots"></div>
+    <button class="btn btn-primary onboard-next" type="button" data-ob="next">Далее</button>
+  </div>
+
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/config.js?v=202610182347"></script>
-  <script src="js/places.js?v=202610182347"></script>
-  <script src="js/collections.js?v=202610182347"></script>
-  <script src="js/routes.js?v=202610182347"></script>
-  <script src="js/metro.js?v=202610182347"></script>
-  <script src="js/photos.js?v=202610182347"></script>
-  <script src="js/hours.js?v=202610182347"></script>
-  <script src="js/map.js?v=202610182347"></script>
-  <script src="js/app.js?v=202610182347"></script>
+  <script src="js/config.js?v=202610190004"></script>
+  <script src="js/places.js?v=202610190004"></script>
+  <script src="js/collections.js?v=202610190004"></script>
+  <script src="js/routes.js?v=202610190004"></script>
+  <script src="js/metro.js?v=202610190004"></script>
+  <script src="js/photos.js?v=202610190004"></script>
+  <script src="js/hours.js?v=202610190004"></script>
+  <script src="js/map.js?v=202610190004"></script>
+  <script src="js/app.js?v=202610190004"></script>
 </body>
 </html>
