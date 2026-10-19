@@ -1798,6 +1798,12 @@
     else if (bad && !gen.indoor && gen.want.has('photo')) toast(`${wx.e} ${wx.tip.split(' — ')[0]} — вместо прогулок места под крышей`);
   }
 
+  // Перерисовать только форму, а не весь список маршрутов (там два десятка карточек с фото)
+  function renderGen() {
+    const g = $('#routes-body .gen');
+    if (g) g.outerHTML = genFormHtml(); else renderRoutes();
+  }
+
   function genFormHtml() {
     const seg = (list, key) => list.map((o) => `<button type="button" class="seg-btn${gen[key] === o.v ? ' active' : ''}" data-gen="${key}" data-val="${o.v}">${o.label}</button>`).join('');
     const tog = (key, label) => `<button type="button" class="seg-btn${gen[key] ? ' active' : ''}" data-gen-toggle="${key}">${label}</button>`;
@@ -2241,7 +2247,7 @@
         try { localStorage.setItem('weather', JSON.stringify({ ts: Date.now(), d })); } catch (e) { /* хранилище недоступно */ }
         updateTodayChip();
         if (openSheetName === 'today') renderToday();
-        else if (openSheetName === 'routes' && gen.open) renderRoutes();
+        else if (openSheetName === 'routes' && gen.open) renderGen();
       })
       .catch(() => { /* без погоды всё работает, просто без подсказки */ })
       .finally(() => clearTimeout(timer));
@@ -2801,26 +2807,54 @@
   // «Достижения», «Маршруты») в первый раз открывалась с заминкой. Показываем их заранее, в паузе,
   // за краем экрана — потом шрифт уже найден
   function warmEmoji() {
-    const set = new Set();
-    [Q_MOOD, Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET].concat(Object.values(Q_DETAIL)).forEach((q) => q.opts.forEach((o) => set.add(o.e)));
-    AWARDS.forEach((a) => set.add(a.e));
-    READY_ROUTES.concat(COLLECTIONS).forEach((r) => r.emoji && set.add(r.emoji));
-    '☀️ 🌙 🌤 ⛅ ☁️ 🌫 🌦 🌧 🌨 ⛈ 🌡 ✨ 🗺 🚶 🏅 📍 🤝 🎉 🏆 ✓ ＋'.split(' ').forEach((e) => set.add(e));
-    const d = document.createElement('div');
-    d.setAttribute('aria-hidden', 'true');
-    d.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none';
-    const text = [...set].join(' ');
-    d.innerHTML = [13, 22, 26, 30].map((s) => `<span style="font-size:${s}px">${text}</span>`).join('');
-    document.body.appendChild(d);
-    void d.offsetWidth;
-    setTimeout(() => d.remove(), 1000);
-    // и шторку маршрута один раз верстаем заранее (она скрыта): первый показ маршрута — без заминки
+    // Шрифт готовится отдельно под каждый размер — поэтому прогреваем эмодзи ровно в тех размерах,
+    // в которых они встречаются: плитки вопросов, сводка ответов, форма маршрута, погода, значки и т. д.
+    const qs = [Q_MOOD, Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET].concat(Object.values(Q_DETAIL));
+    const qEmoji = [].concat(...qs.map((q) => q.opts.map((o) => o.e)));
+    const wxEmoji = '☀️ 🌙 🌤 ⛅ ☁️ 🌫 🌦 🌧 🌨 ⛈ 🌡'.split(' ');
+    const routeEmoji = READY_ROUTES.map((r) => r.emoji).filter(Boolean).concat(['✨', '🚶', '📍', '🤝']);
+    const jobs = [
+      [26, '400', qEmoji],                                              // плитки «Куда сегодня?»
+      [13, '700', qEmoji],                                              // сводка ответов
+      [30, '400', wxEmoji.concat(AWARDS.map((a) => a.e))],              // погода и значки
+      [13.5, '700', GEN_WANT.map((o) => o.label.split(' ')[0]).concat(['☔', '✨']).concat(wxEmoji)], // форма маршрута
+      [24, '400', routeEmoji],                                          // карточки маршрутов
+      [22, '800', routeEmoji.concat(qEmoji)],                           // заголовок маршрута
+      [22, '400', COLLECTIONS.map((c) => c.emoji)],                     // подборки в поиске
+      [14, '700', ['🎉', '🏆', '✓', '＋'].concat(AWARDS.map((a) => a.e))], // тосты
+    ].map(([size, weight, list]) => [size, weight, [...new Set(list)]]);
+    const idle = window.requestIdleCallback || ((cb) => setTimeout(() => cb({ timeRemaining: () => 8 }), 60));
+    const box = document.createElement('div');
+    box.setAttribute('aria-hidden', 'true');
+    box.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none;contain:strict;width:400px;height:40px';
+    document.body.appendChild(box);
+    let j = 0, i = 0;
+    // Понемногу — по паре эмодзи за раз, пока телефон свободен: каждая порция — несколько
+    // миллисекунд, и карта не подвисает (всё разом занимало заметную долю секунды)
+    const step = (dl) => {
+      do {
+        const [size, weight, list] = jobs[j];
+        const s = document.createElement('span');
+        s.style.cssText = `font-size:${size}px;font-weight:${weight}`;
+        s.textContent = list.slice(i, i + 2).join(' ');
+        box.appendChild(s);
+        void s.offsetWidth;
+        i += 2;
+        if (i >= list.length) { j++; i = 0; box.textContent = ''; }
+      } while (j < jobs.length && dl.timeRemaining() > 6);
+      if (j < jobs.length) idle(step);
+      else { box.remove(); idle(warmRouteSheet); }
+    };
+    idle(step);
+  }
+
+  // Шторку маршрута один раз верстаем заранее (она скрыта): первый показ маршрута — без заминки
+  function warmRouteSheet() {
     const r = READY_ROUTES.find((x) => routePlaces(x.ids).length > 1 && !x.adult);
-    if (r && !activeRoute) {
-      activeRoute = Object.assign({}, r);
-      try { renderRouteSheet(); void $('#route-sheet').offsetHeight; } catch (e) { /* не страшно */ }
-      activeRoute = null;
-    }
+    if (!r || activeRoute) return;
+    activeRoute = Object.assign({}, r);
+    try { renderRouteSheet(); void $('#route-sheet').offsetHeight; } catch (e) { /* не страшно */ }
+    activeRoute = null;
   }
 
   // ---------- Заставка ----------
@@ -2897,19 +2931,19 @@
       // «Собери маршрут за меня» и фильтры
       const gOpen = t.closest('[data-gen-open]'), gSet = t.closest('[data-gen]'), gTog = t.closest('[data-gen-toggle]');
       const gGo = t.closest('[data-gen-go]'), gWant = t.closest('[data-gen-want]');
-      if (gOpen) { gen.open = !gen.open; haptic.tap(); renderRoutes(); if (gen.open && !weather) loadWeather(); return; }
+      if (gOpen) { gen.open = !gen.open; haptic.tap(); renderGen(); if (gen.open && !weather) loadWeather(); return; }
       if (gSet) {
         const v = gSet.dataset.val;
         gen[gSet.dataset.gen] = gSet.dataset.gen === 'budget' ? (v === 'null' ? null : +v) : v;
-        saveGen(); haptic.tap(); renderRoutes(); return;
+        saveGen(); haptic.tap(); renderGen(); return;
       }
-      if (gTog) { const k = gTog.dataset.genToggle; gen[k] = !gen[k]; saveGen(); haptic.tap(); renderRoutes(); return; }
+      if (gTog) { const k = gTog.dataset.genToggle; gen[k] = !gen[k]; saveGen(); haptic.tap(); renderGen(); return; }
       if (gWant) {
         const w = gWant.dataset.genWant;
         const flip = () => {
           if (gen.want.has(w)) { if (gen.want.size === 1) { toast('Оставь хотя бы что-то одно'); return; } gen.want.delete(w); }
           else gen.want.add(w);
-          saveGen(); haptic.tap(); renderRoutes();
+          saveGen(); haptic.tap(); renderGen();
         };
         if (w === 'night' && !gen.want.has(w) && !adultOk) askAdult().then((ok) => { openSheet('routes'); if (ok) flip(); });
         else flip();
