@@ -2324,6 +2324,16 @@
     { v: 'friends', e: '👯', label: 'С друзьями' },
     { v: 'kids', e: '🧸', label: 'С детьми' },
   ] };
+  // Где искать: радиус пешком от тебя, центр (ЦАО), видимая часть карты или вся Москва.
+  // scale — насколько важна близость: чем больше, тем сильнее решает качество места, а не расстояние
+  const KREMLIN = { lat: 55.752, lon: 37.6175 };
+  const Q_WHERE = { key: 'where', title: 'Где искать?', opts: [
+    { v: 'near', e: '📍', label: 'Рядом со мной', hint: 'до 15 минут пешком', radius: 1200, scale: 500 },
+    { v: 'close', e: '🚶', label: 'Недалеко', hint: 'до 40 минут пешком', radius: 3000, scale: 1100 },
+    { v: 'center', e: '🏰', label: 'В центре', hint: 'Кремль, Арбат, Китай-город и вокруг', scale: 2500 },
+    { v: 'map', e: '🗺', label: 'Где сейчас карта', hint: 'то, что видно на экране', scale: 1500 },
+    { v: 'any', e: '🌍', label: 'Неважно', hint: 'лучшее по всей Москве', scale: 15000 },
+  ] };
   const Q_WHEN = { key: 'when', title: 'Когда выходишь?', opts: [
     { v: 'now', e: '⚡', label: 'Прямо сейчас' },
     { v: 'hour', e: '⏰', label: 'Через час' },
@@ -2331,10 +2341,10 @@
     { v: 'tomorrow', e: '📅', label: 'Завтра днём' },
   ] };
   const Q_TIME = { key: 'time', title: 'Сколько есть времени?', opts: [
-    { v: 'short', e: '⏱', label: 'Около часа', radius: 1500 },
-    { v: 'mid', e: '🕑', label: '2–3 часа', radius: 2500 },
-    { v: 'long', e: '☀️', label: 'Полдня', radius: 4000 },
-    { v: 'day', e: '🗓', label: 'Весь день', radius: 6000 },
+    { v: 'short', e: '⏱', label: 'Около часа' },
+    { v: 'mid', e: '🕑', label: '2–3 часа' },
+    { v: 'long', e: '☀️', label: 'Полдня' },
+    { v: 'day', e: '🗓', label: 'Весь день' },
   ] };
   const Q_BUDGET = { key: 'budget', title: 'Бюджет на человека?', opts: [
     { v: 0, e: '🆓', label: 'Бесплатно' },
@@ -2350,7 +2360,13 @@
   function todaySteps() {
     const s = [Q_MOOD];
     if (Q_DETAIL[today.ans.mood]) s.push(Q_DETAIL[today.ans.mood]);
-    return s.concat([Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET]);
+    return s.concat([Q_WHERE, Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET]);
+  }
+
+  // Сколько добираться до места: пешком, если оно рядом с тобой; иначе — примерно полчаса на метро
+  function travelMin(p) {
+    if (!today.user) return 20;
+    return distance(today.user, p) <= 2500 ? legMin(today.user, p) : 35;
   }
   const todayOpt = (q, v) => q.opts.find((o) => o.v === v);
   const todayAns = (key) => { const q = todaySteps().find((x) => x.key === key); return q && todayOpt(q, today.ans[key]); };
@@ -2403,7 +2419,7 @@
         ${i === 0 ? '<span class="pick-badge">Лучший вариант</span>' : ''}
         <b>${esc(p.name)}</b>
         <small>${p.rating ? `<span class="row-rating">★ ${p.rating.toFixed(1).replace('.', ',')}</span> · ` : ''}${esc(catLabel(p))}${stopPrice(p)}</small>
-        <small>${distanceText(distance(today.from, p))}</small>
+        ${today.user ? `<small>${distanceText(distance(today.user, p))}</small>` : ''}
         ${why ? `<span class="why">${why}</span>` : ''}
       </span></button>`;
   }
@@ -2413,7 +2429,7 @@
     if (!pl) return '';
     const ps = routePlaces(pl.ids);
     if (ps.length < 2) return '<p class="near-note">Целый план рядом не собрался — смягчи бюджет или выбери другое время.</p>';
-    const r = { startIn: today.startIn, fromMe: today.me ? today.from : null };
+    const r = { startIn: today.startIn, fromMe: today.me ? today.user : null };
     const st = routeStats(ps, r.fromMe, r), tl = routeTimeline(r, ps);
     const stops = ps.map((p, i) => `${i ? `<li class="route-leg">${legMin(ps[i - 1], p)} мин пешком</li>` : ''}
       <li class="route-stop plan-stop" data-id="${esc(p.id)}"><span class="plan-time">${tl[i].arrive}</span>
@@ -2441,7 +2457,7 @@
       return head + wxHtml(weatherAt(new Date())) + `<div class="today-dots">${steps.map((_, i) => `<i${i <= today.step ? ' class="on"' : ''}></i>`).join('')}</div>
         <h3 class="today-q">${q.title} <small>${today.step + 1} из ${steps.length}</small></h3>
         <div class="today-opts">${todayOptions(q).map((o) => `<button type="button" class="today-opt" data-answer="${q.key}" data-val="${o.v}">
-          <span class="today-e">${o.e}</span><b>${o.label}${o.adult ? AGE_BADGE : ''}</b></button>`).join('')}</div>
+          <span class="today-e">${o.e}</span><b>${o.label}${o.adult ? AGE_BADGE : ''}</b>${o.hint ? `<small>${o.hint}</small>` : ''}</button>`).join('')}</div>
         ${today.step ? '<div class="draft-links"><button type="button" data-today="back">← Назад</button></div>' : ''}`;
     }
     const startAt = new Date(Date.now() + today.startIn * 60000);
@@ -2450,11 +2466,15 @@
     const bad = !!(wx && wx.bad);
     const sum = steps.map((q) => { const o = todayOpt(q, today.ans[q.key]); return o ? `<span class="tag">${o.e} ${o.label}</span>` : ''; }).join('');
     const ps = today.picks;
-    const arrive = (p) => new Date(startAt.getTime() + (today.me ? legMin(today.from, p) : 0) * 60000);
+    const arrive = (p) => new Date(startAt.getTime() + travelMin(p) * 60000);
+    const w = today.ans.where;
+    const area = (w === 'near' || w === 'close') && !today.me ? 'от центра карты'
+      : { near: 'рядом с тобой', close: 'недалеко от тебя', center: 'в центре Москвы', map: 'там, где сейчас карта', any: 'по всей Москве' }[w];
+    const notes = [today.locNote, today.note].filter(Boolean).map((n) => `<p class="near-note">${esc(n)}</p>`).join('');
     return head + wxHtml(wx) + `<div class="tags today-sum">${sum}</div>
-      ${today.note ? `<p class="near-note">${esc(today.note)}</p>` : ''}
+      ${notes}
       ${ps.length
-        ? `<div class="section-title">Лучшие варианты <small>${today.me ? 'рядом с тобой' : 'от центра карты'}</small></div>
+        ? `<div class="section-title">Лучшие варианты <small>${area}</small></div>
            <div class="picks">${ps.map((p, i) => pickCardHtml(p, i, arrive(p), bad)).join('')}</div>
            <div class="draft-links"><button type="button" data-today="more">Другие варианты</button><button type="button" data-today="restart">Ответить заново</button></div>
            ${planHtml()}`
@@ -2475,7 +2495,7 @@
   // уточнение (кухня, тип кофейни, где гулять) — строго, если таких мест хватает, иначе — мягко.
   // Из лучших берём случайные, но лучшие — чаще, чтобы «Другие варианты» давали новое
   function pickToday() {
-    const a = today.ans, mood = todayAns('mood'), time = todayAns('time'), det = todayAns('detail');
+    const a = today.ans, mood = todayAns('mood'), where = todayAns('where'), det = todayAns('detail');
     const startAt = new Date(Date.now() + today.startIn * 60000);
     const wx = weatherAt(startAt), bad = !!(wx && wx.bad);
     const prefer = todayPrefer(bad);
@@ -2486,24 +2506,30 @@
       if (bad && a.mood === 'any' && (isOutdoor(p) || p.setting === 'both')) return false; // «Удиви меня» в непогоду — только под крышей
       return true;
     };
-    const arriveAt = (d) => new Date(startAt.getTime() + (today.me ? Math.round((d * 1.3) / WALK_M_PER_MIN) : 0) * 60000);
-    const openFor = (p, d) => {
-      const left = Hours.minutesLeft(p.hours, arriveAt(d));
+    const openFor = (p) => {
+      const left = Hours.minutesLeft(p.hours, new Date(startAt.getTime() + travelMin(p) * 60000));
       if (left === null) return p.cat === 'photo'; // часы неизвестны — годится только для улиц и парков
       return left >= Math.min(60, stayFor(p) * 0.7);
     };
+    // Зона поиска по шагам: сначала ровно то, что выбрано; если там пусто — чуть шире (и говорим об этом)
+    const vb = today.bounds, half = distance({ lat: vb.north, lon: vb.east }, { lat: vb.south, lon: vb.west }) / 2;
+    const stages = {
+      near: [(x) => x.d <= 1200, (x) => x.d <= 2000],
+      close: [(x) => x.d <= 3000, (x) => x.d <= 4500],
+      center: [(x) => CENTER_DISTRICTS.has(x.p.district), (x) => x.d <= 5000],
+      map: [(x) => x.p.lat <= vb.north && x.p.lat >= vb.south && x.p.lon <= vb.east && x.p.lon >= vb.west, (x) => x.d <= Math.max(2000, half * 2)],
+      any: [() => true],
+    }[where.v];
     const base = [];
-    for (const p of curated) {
-      if (!fits(p)) continue;
-      const d = distance(today.from, p);
-      if (d <= time.radius * 4) base.push({ p, d });
-    }
+    for (const p of curated) if (fits(p)) base.push({ p, d: distance(today.from, p) });
     const strict = det && det.test;
+    let wider = false;
     const collect = (useDet) => {
       let c = [];
-      for (const r of [time.radius, time.radius * 2, time.radius * 4]) {
-        c = base.filter((x) => x.d <= r && (!useDet || det.test(x.p)) && openFor(x.p, x.d));
-        if (c.length >= (useDet ? 4 : 6)) break;
+      for (let k = 0; k < stages.length; k++) {
+        c = base.filter((x) => stages[k](x) && (!useDet || det.test(x.p)) && openFor(x.p));
+        if (c.length >= (useDet ? 3 : 4)) { if (k) wider = true; break; }
+        if (k === stages.length - 1 && c.length && k) wider = true;
       }
       return c;
     };
@@ -2511,15 +2537,17 @@
     let cands = strict ? collect(true) : collect(false);
     if (strict && cands.length < 3) {
       const more = collect(false).filter((x) => !cands.includes(x));
-      if (more.length) today.note = cands.length ? `Мест «${det.label.toLowerCase()}» рядом мало — добавил и другие` : `«${det.label}» рядом сейчас не нашлось — вот другие хорошие места`;
+      if (more.length) today.note = cands.length ? `Мест «${det.label.toLowerCase()}» здесь мало — добавил и другие` : `«${det.label}» здесь сейчас не нашлось — вот другие хорошие места`;
       cands = cands.concat(more);
     }
     if (!cands.length) {
       // поздно ночью почти всё закрыто — покажем, что откроется в ближайшие часы
-      cands = base.filter((x) => x.d <= time.radius * 2 && (Hours.minutesToOpen(x.p.hours, startAt) || Infinity) <= 720);
+      const last = stages[stages.length - 1];
+      cands = base.filter((x) => last(x) && (Hours.minutesToOpen(x.p.hours, startAt) || Infinity) <= 720);
       if (cands.length) today.note = 'В это время почти всё закрыто — вот что откроется в ближайшие часы';
-    } else if (bad && (a.mood === 'walk' || a.mood === 'any')) today.note = 'Погода не для прогулок — выше места под крышей';
-    const score = (x) => placeQuality(x.p, prefer) * (strict && det.test(x.p) ? 1.5 : 1) / (1 + x.d / (time.radius / 2.5));
+    } else if (wider && !today.note) today.note = where.v === 'map' ? 'На видимой части карты мест мало — добавил вокруг' : where.v === 'center' ? 'В центре подходящего мало — добавил рядом с ним' : 'Совсем рядом подходящего мало — добавил чуть дальше';
+    else if (bad && (a.mood === 'walk' || a.mood === 'any')) today.note = 'Погода не для прогулок — выше места под крышей';
+    const score = (x) => placeQuality(x.p, prefer) * (strict && det.test(x.p) ? 1.5 : 1) / (1 + x.d / where.scale);
     let top = cands.map((x) => ({ p: x.p, s: score(x) })).sort((x, y) => y.s - x.s).slice(0, 14);
     const fresh = top.filter((x) => !today.seen.has(x.p.id));
     if (fresh.length >= 3) top = fresh;
@@ -2536,6 +2564,14 @@
       picks.push(pick);
     }
     picks.sort((x, y) => y.s - x.s);
+    // уточнённых мест не хватило (например, два филиала одной сети) — добираем лучшими из остальных
+    if (picks.length < 3 && strict) {
+      const rest = collect(false).filter((x) => !picks.some((q) => q.p === x.p) && !chains.has(chainKey(x.p)))
+        .map((x) => ({ p: x.p, s: score(x) })).sort((x, y) => y.s - x.s);
+      const had = picks.length;
+      for (const x of rest) { if (picks.length >= 3) break; if (chains.has(chainKey(x.p))) continue; chains.add(chainKey(x.p)); picks.push(x); }
+      if (picks.length > had && !today.note) today.note = `Мест «${det.label.toLowerCase()}» здесь мало — добавил и другие`;
+    }
     picks.forEach((x) => today.seen.add(x.p.id));
     today.picks = picks.map((x) => x.p);
     buildTodayPlan();
@@ -2544,7 +2580,7 @@
   // План на всё время: начинаем с лучшего варианта, дальше — то, что к нему подходит
   // (к еде — прогулка, к музею — кофе и прогулка и т. д.), по часам работы и погоде
   function buildTodayPlan() {
-    const a = today.ans, time = todayAns('time');
+    const a = today.ans;
     today.plan = null;
     if (a.time === 'short' || !today.picks.length) return;
     const dur = PLAN_DUR.find((d) => d.v === a.time);
@@ -2558,14 +2594,14 @@
     // первый шаг — само выбранное место
     const i = slots.findIndex((s) => slotMatch(anchor, s));
     if (i >= 0) slots.splice(i, 1); else slots.pop();
-    const lead = (today.me ? legMin(today.from, anchor) : 0) + stayFor(anchor);
+    const lead = (today.me ? legMin(today.user, anchor) : 0) + stayFor(anchor);
     const r = priceRange(anchor);
     let best = null;
     for (let k = 0; k < 5; k++) {
       const pl = planRoute({
         from: anchor, me: true, startAt: new Date(startAt.getTime() + lead * 60000), slots, max: dur.max - lead,
         budget: a.budget, spent: r ? (r[0] + r[1]) / 2 : 0, prefer: todayPrefer(bad), exclude: new Set([anchor.id]), chains: new Set([chainKey(anchor)]),
-        noNight: a.who === 'kids', radius: time.radius,
+        noNight: a.who === 'kids',
       });
       if (!best || betterPlan(pl, best)) best = pl;
       if (pl.ids.length === slots.length && !pl.subs) break;
@@ -2579,9 +2615,19 @@
     today.seen = new Set();
     today.startIn = whenOffset(today.ans.when);
     renderToday();
-    const sp = await startPoint();
-    today.from = sp.from;
-    today.me = sp.me;
+    // Где ты — спрашиваем только для «рядом» и «недалеко»; для остального хватит, если уже знаем
+    const w = today.ans.where;
+    let user = state.user && inMkad(state.user) ? state.user : null;
+    today.locNote = '';
+    if (w === 'near' || w === 'close') {
+      const sp = await startPoint();
+      user = sp.me ? sp.from : null;
+      if (!user) today.locNote = 'Не получилось узнать, где ты, — ищу от центра карты';
+    }
+    today.user = user;
+    today.me = (w === 'near' || w === 'close') && !!user;
+    today.from = w === 'center' ? KREMLIN : w === 'map' ? mapCenter() : w === 'any' ? (user || KREMLIN) : (user || mapCenter());
+    today.bounds = state.view.bounds;
     pickToday();
     if (openSheetName === 'today') renderToday();
   }
@@ -2611,7 +2657,7 @@
     const names = { coffee: 'кофе', photo: 'прогулка', food: 'еда', museum: 'музей', night: 'бар', mall: 'ТЦ' };
     const title = ps.map((p) => names[p.cat]).join(' → ');
     showRoute({ id: 'today', title: title[0].toUpperCase() + title.slice(1), emoji: todayAns('mood').e, ids: pl.ids, gen: true, regen: 'today',
-      fromMe: today.me ? today.from : null, startIn: today.startIn });
+      fromMe: today.me ? today.user : null, startIn: today.startIn });
   }
 
   function onTodayClick(e) {
@@ -2809,7 +2855,7 @@
   function warmEmoji() {
     // Шрифт готовится отдельно под каждый размер — поэтому прогреваем эмодзи ровно в тех размерах,
     // в которых они встречаются: плитки вопросов, сводка ответов, форма маршрута, погода, значки и т. д.
-    const qs = [Q_MOOD, Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET].concat(Object.values(Q_DETAIL));
+    const qs = [Q_MOOD, Q_WHERE, Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET].concat(Object.values(Q_DETAIL));
     const qEmoji = [].concat(...qs.map((q) => q.opts.map((o) => o.e)));
     const wxEmoji = '☀️ 🌙 🌤 ⛅ ☁️ 🌫 🌦 🌧 🌨 ⛈ 🌡'.split(' ');
     const routeEmoji = READY_ROUTES.map((r) => r.emoji).filter(Boolean).concat(['✨', '🚶', '📍', '🤝']);

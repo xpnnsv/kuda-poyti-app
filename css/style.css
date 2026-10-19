@@ -1164,6 +1164,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .today-opt:active { transform: scale(0.97); background: var(--surface-2); }
 .today-e { font-size: 26px; line-height: 1; }
 .today-opt b { font-size: 14.5px; font-weight: 800; line-height: 1.25; }
+.today-opt small { margin-top: -4px; color: var(--hint); font-size: 12px; font-weight: 600; line-height: 1.3; }
 .today-sum { margin: 0 0 14px; }
 
 /* ---------- Достижения ---------- */
