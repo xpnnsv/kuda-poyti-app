@@ -1177,7 +1177,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .aw-progress .f-label { margin-bottom: 8px; }
 .aw-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .aw-bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
-.awards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 22px; }
+.awards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 22px; }
 .award { min-width: 0; padding: 12px 8px 10px; border: 1px solid var(--line); border-radius: 16px; text-align: center; }
 .award-e { display: block; font-size: 30px; line-height: 1.1; filter: grayscale(1); opacity: 0.4; }
 .award b { display: block; margin-top: 6px; font-size: 12.5px; font-weight: 800; line-height: 1.2; }
@@ -1325,4 +1325,19 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   .place-actions .btn .ic { width: 16px; height: 16px; }
   .awards { grid-template-columns: 1fr 1fr; }
 }
-.award b { overflow-wrap: anywhere; }
+.award b { -webkit-hyphens: auto; hyphens: auto; overflow-wrap: anywhere; } /* длинные слова — с переносом по слогам */
+
+/* ---------- Эмодзи картинками (Twemoji, img/emoji/<код>.svg) ---------- */
+/* В строке текста — чуть крупнее буквы и по её середине; в плитках, значках и карточках — свои размеры */
+.emo { display: inline-block; flex: none; width: 1.2em; height: 1.2em; vertical-align: -0.22em; -webkit-user-select: none; user-select: none; pointer-events: none; }
+img.today-e { width: 28px; height: 28px; vertical-align: 0; }
+img.wx-e { width: 32px; height: 32px; vertical-align: 0; }
+img.route-emoji { width: 26px; height: 26px; vertical-align: 0; }
+img.coll-emoji { display: block; width: 26px; height: 26px; margin-bottom: 6px; }
+img.award-e { display: block; width: 32px; height: 32px; margin: 0 auto; }
+img.emo-title { width: 0.95em; height: 0.95em; vertical-align: -0.1em; }
+.onboard-art .emo { width: 72px; height: 72px; vertical-align: 0; }
+.legal-mark .emo { width: 34px; height: 34px; vertical-align: 0; }
+.chip-wx .emo { width: 17px; height: 17px; vertical-align: -3px; }
+.seg-btn .emo { width: 17px; height: 17px; vertical-align: -3px; }
+#toast .emo { width: 18px; height: 18px; vertical-align: -3px; }

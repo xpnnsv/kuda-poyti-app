@@ -15,6 +15,18 @@
   const AGE_BADGE = '<span class="age-badge">18+</span>';
   // Иконка из набора в app.html (<symbol id="i-…">)
   const icon = (name, cls) => `<svg class="ic${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+  // Эмодзи — картинками Twemoji (img/emoji/<код>.svg): на любом телефоне они цветные и одинаковые
+  // (иначе часть эмодзи — 🏛 🍽 ☀ — на некоторых телефонах выходит чёрным значком шрифта).
+  // Обычная картинка <img>: браузер один раз превращает её в растр и дальше просто показывает —
+  // это заметно легче для телефона, чем живой SVG. Картинки нет в наборе — показываем сам символ
+  const EMOJI_SET = new Set('23f0 23f1 2600 2601 2614 2615 267e 26a1 26c5 26c8 26ea 26f2 26f8 2728 2764 1f193 1f306 1f307 1f30d 1f319 1f321 1f324 1f326 1f327 1f328 1f32b 1f333 1f338 1f33f 1f342 1f35d 1f362 1f363 1f370 1f377 1f378 1f37d 1f389 1f3a0 1f3a8 1f3b2 1f3c5 1f3c6 1f3d9 1f3db 1f3e0 1f3ed 1f3ef 1f3f0 1f463 1f465 1f46f 1f48e 1f495 1f4b0 1f4b3 1f4b8 1f4c5 1f4cd 1f4f8 1f50a 1f52d 1f551 1f5bc 1f5d3 1f5fa 1f60c 1f64b 1f680 1f687 1f6b6 1f6cb 1f6cd 1f91d 1f957 1f959 1f95e 1f95f 1f964 1f966 1f969 1f976 1f97e 1f9a2 1f9ed 1f9f1 1f9f8'.split(' '));
+  const emojiCode = (e) => [...String(e)].map((c) => c.codePointAt(0).toString(16)).filter((h) => h !== 'fe0f').join('-');
+  function emo(e, cls) {
+    if (!e) return '';
+    const code = emojiCode(e);
+    if (!EMOJI_SET.has(code)) return esc(e);
+    return `<img class="emo${cls ? ' ' + cls : ''}" src="img/emoji/${code}.svg" alt="" draggable="false" decoding="async">`;
+  }
   const catLabel = (p) => (p.kind === 'food_court' ? 'Фудкорт' : p.kind === 'mall' ? 'Торговый центр' : CATS[p.cat].label);
   // Сколько названий показывать в списках «Где поесть» / «Развлечения»
   const LIST_LIMIT = 12;
@@ -126,9 +138,10 @@
   }
 
   let toastTimer;
-  function toast(text) {
+  // e — эмодзи картинкой перед текстом (например, «🎉 Маршрут пройден!»)
+  function toast(text, e) {
     const t = $('#toast');
-    t.textContent = text;
+    if (e) t.innerHTML = emo(e) + ' ' + esc(text); else t.textContent = text;
     t.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
@@ -943,7 +956,7 @@
   }
 
   const collTileHtml = (c) => `<button class="coll" type="button" data-coll="${c.id}">
-      <span class="coll-emoji">${c.emoji}</span><b>${esc(c.title)}</b><small>${c.set.size} ${plural(c.set.size, 'место', 'места', 'мест')}</small>
+      ${emo(c.emoji, 'coll-emoji')}<b>${esc(c.title)}</b><small>${c.set.size} ${plural(c.set.size, 'место', 'места', 'мест')}</small>
     </button>`;
 
   // ---------- Поиск ----------
@@ -1290,7 +1303,7 @@
     return `<div class="route-card${locked ? ' route-card--locked' : ''}${ph ? ' route-card--cover' : ''}" data-route="${kind}:${esc(r.id)}" role="button" tabindex="0">
       ${cover}
       <div class="route-top">
-        <span class="route-emoji">${r.emoji || '🚶'}</span>
+        ${emo(r.emoji || '🚶', 'route-emoji')}
         <div class="route-title"><b>${esc(r.title)}${r.adult ? AGE_BADGE : ''}${r.season ? `<span class="season-badge">${SEASON_LABEL[r.season]}</span>` : ''}</b>
           <small>${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</small>
           <small class="route-price">${routePriceText(st)}${done ? ' · <span class="route-done">✓ пройден</span>' : ''}</small></div>
@@ -1452,7 +1465,7 @@
       routesDone.push({ id: r.id, title: r.title, ts: Date.now() });
       haptic.notify('success');
       const n = routesDone.length;
-      toast(`Маршрут пройден! Это твой ${n}-й маршрут 🎉`);
+      toast(`Маршрут пройден! Это твой ${n}-й маршрут`, '🎉');
       routeDone = true;
     }
     saveVisited();
@@ -1506,7 +1519,7 @@
       <div class="place-head">
         <div class="place-title">
           <div class="place-cat">${icon('route')}Маршрут${r.adult ? AGE_BADGE : ''}</div>
-          <h2>${r.emoji ? r.emoji + ' ' : ''}${esc(r.title)}</h2>
+          <h2>${r.emoji ? emo(r.emoji, 'emo-title') + ' ' : ''}${esc(r.title)}</h2>
           <div class="place-full">${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</div>
           <div class="route-price">${routePriceText(st)}</div>
         </div>
@@ -1525,7 +1538,7 @@
         <div class="budget-scale"><span>Сейчас</span><span>Через 1,5 суток</span></div>
       </div>
       <ol class="route-stops" id="route-stops">${stops}</ol>
-      ${doneCount ? `<p class="route-progress">Отмечено ${doneCount} из ${r.ids.length}${doneCount === r.ids.length ? ' — маршрут пройден 🎉' : ''}</p>` : ''}
+      ${doneCount ? `<p class="route-progress">Отмечено ${doneCount} из ${r.ids.length}${doneCount === r.ids.length ? ' — маршрут пройден ' + emo('🎉') : ''}</p>` : ''}
       <div class="draft-links"><button type="button" data-raction="from-me">${r.fromMe ? 'Начать с первого места' : 'Начать отсюда'}</button></div>
       <p class="place-note">Время — примерное: дорога пешком и сколько обычно проводят в таком месте.</p>
       <div class="place-actions">
@@ -1716,7 +1729,7 @@
       });
       if (ok.length >= 3 || (ok.length && radius === 3200)) {
         // близость к предыдущему месту важнее, если человека утомляет долгая дорога
-        const nearScale = tiredOf('travel') ? 320 : 450;
+        const nearScale = prefersNear() ? 320 : 450;
         const top = ok.map((x) => ({ p: x.p, s: placeQuality(x.p, o.prefer) / (1 + x.d / nearScale) })).sort((a, b) => b.s - a.s).slice(0, 5);
         if (!o.random) return top[0].p; // по умолчанию — лучшее по сумме оценок, без случайностей
         let r = Math.random() * top.reduce((s, x) => s + x.s, 0);
@@ -1756,12 +1769,12 @@
 
   // ---------- «Собери маршрут за меня» ----------
   const GEN_WANT = [
-    { v: 'coffee', label: '☕ Кофе' },
-    { v: 'food', label: '🍽 Еда' },
-    { v: 'photo', label: '🌳 Прогулки' },
-    { v: 'museum', label: '🏛 Музеи' },
-    { v: 'mall', label: '🛍 ТЦ' },
-    { v: 'night', label: '🍸 Бар 18+' },
+    { v: 'coffee', e: '☕', label: 'Кофе' },
+    { v: 'food', e: '🍽', label: 'Еда' },
+    { v: 'photo', e: '🌳', label: 'Прогулки' },
+    { v: 'museum', e: '🏛', label: 'Музеи' },
+    { v: 'mall', e: '🛍', label: 'ТЦ' },
+    { v: 'night', e: '🍸', label: 'Бар 18+' },
   ];
   const GEN_BUDGET = [
     { v: 0, label: 'Бесплатно' },
@@ -1813,7 +1826,7 @@
     const got = new Set(best.ids.map((id) => byId.get(id).cat));
     const miss = [...new Set(best.skipped)].filter((c) => !got.has(c) && why[c]);
     if (miss.length) toast(`${miss.map((c) => why[c]).join(' и ')} рядом в это время закрыты или не по бюджету — собрал без них`);
-    else if (bad && !gen.indoor && gen.want.has('photo')) toast(`${wx.e} ${wx.tip.split(' — ')[0]} — вместо прогулок места под крышей`);
+    else if (bad && !gen.indoor && gen.want.has('photo')) toast(`${wx.tip.split(' — ')[0]} — вместо прогулок места под крышей`, wx.e);
     else if (outside) toast('Похоже, ты за МКАД — маршрут собран от центра карты');
   }
 
@@ -1825,13 +1838,13 @@
 
   function genFormHtml() {
     const seg = (list, key) => list.map((o) => `<button type="button" class="seg-btn${gen[key] === o.v ? ' active' : ''}" data-gen="${key}" data-val="${o.v}">${o.label}</button>`).join('');
-    const tog = (key, label) => `<button type="button" class="seg-btn${gen[key] ? ' active' : ''}" data-gen-toggle="${key}">${label}</button>`;
-    const wants = GEN_WANT.map((o) => `<button type="button" class="seg-btn${gen.want.has(o.v) ? ' active' : ''}" data-gen-want="${o.v}">${o.label}</button>`).join('');
+    const tog = (key, label, e) => `<button type="button" class="seg-btn${gen[key] ? ' active' : ''}" data-gen-toggle="${key}">${emo(e)} ${label}</button>`;
+    const wants = GEN_WANT.map((o) => `<button type="button" class="seg-btn${gen.want.has(o.v) ? ' active' : ''}" data-gen-want="${o.v}">${emo(o.e)} ${o.label}</button>`).join('');
     const wx = gen.open ? weatherAt(new Date(Date.now() + whenOffset(gen.when) * 60000)) : null;
-    const wxNote = wx ? `<p class="gen-wx">${wx.e} ${wx.label} ${wx.temp}${wx.t ? ', ' + wx.t : ''}${wx.bad && gen.want.has('photo') && !gen.indoor ? ' — прогулки заменю на места под крышей' : ''}</p>` : '';
+    const wxNote = wx ? `<p class="gen-wx">${emo(wx.e)} ${wx.label} ${wx.temp}${wx.t ? ', ' + wx.t : ''}${wx.bad && gen.want.has('photo') && !gen.indoor ? ' — прогулки заменю на места под крышей' : ''}</p>` : '';
     return `<div class="gen${gen.open ? ' gen--open' : ''}">
       <button type="button" class="gen-head" data-gen-open>
-        <span class="route-emoji">✨</span>
+        ${emo('✨', 'route-emoji')}
         <span class="route-title"><b>Собери маршрут за меня</b><small>Выбери, что хочется, — соберу цепочку мест рядом под время, погоду и бюджет</small></span>
         <span class="ya-arrow">${gen.open ? '−' : '+'}</span>
       </button>
@@ -1840,7 +1853,7 @@
         <div class="f-label">Сколько времени</div><div class="seg">${seg(PLAN_DUR, 'dur')}</div>
         <div class="f-label">Когда</div><div class="seg">${seg(PLAN_WHEN, 'when')}</div>
         <div class="f-label">Бюджет на человека</div><div class="seg">${seg(GEN_BUDGET, 'budget')}</div>
-        <div class="f-label">Ещё</div><div class="seg">${tog('indoor', '☔ Только под крышей')}${tog('newOnly', '✨ Только новые места')}</div>
+        <div class="f-label">Ещё</div><div class="seg">${tog('indoor', 'Только под крышей', '☔')}${tog('newOnly', 'Только новые места', '✨')}</div>
         ${wxNote}
         <button type="button" class="btn btn-primary btn-wide" data-gen-go>Собрать маршрут</button>
         <p class="f-note">Еда — к обеду или ужину, музеи — пока открыты, бар — в конце. Начну от тебя (если разрешишь геолокацию) или от центра карты.</p>
@@ -1932,7 +1945,7 @@
     closeSheets();
     $('#chips').hidden = true;
     $('#coll-bar').hidden = false;
-    $('#coll-title').textContent = `${c.emoji} ${c.title} · ${c.set.size} ${plural(c.set.size, 'место', 'места', 'мест')}`;
+    $('#coll-title').innerHTML = `${emo(c.emoji)} ${esc(c.title)} · ${c.set.size} ${plural(c.set.size, 'место', 'места', 'мест')}`;
     render();
     syncFilters();
     fitPlaces([...c.set].map((pid) => byId.get(pid)));
@@ -2274,11 +2287,11 @@
 
   function updateTodayChip() {
     const b = $('#chips [data-today]');
-    if (b) b.innerHTML = `<span class="chip-wx">${weather ? `${weather.e} ${weather.temp}` : '✨'}</span>Куда сегодня?`;
+    if (b) b.innerHTML = `<span class="chip-wx">${weather ? `${emo(weather.e)} ${weather.temp}` : emo('✨')}</span>Куда сегодня?`;
   }
 
   function wxHtml(w) {
-    return w ? `<div class="wx${w.bad ? ' wx--bad' : ''}"><span class="wx-e">${w.e}</span>
+    return w ? `<div class="wx${w.bad ? ' wx--bad' : ''}">${emo(w.e, 'wx-e')}
       <span class="wx-text"><b>${w.label} ${w.temp}${w.t ? ', ' + w.t : ''}</b><small>${esc(w.tip)}</small></span></div>` : '';
   }
 
@@ -2491,14 +2504,14 @@
       return head + wxHtml(weatherAt(new Date())) + `<div class="today-dots">${steps.map((_, i) => `<i${i <= today.step ? ' class="on"' : ''}></i>`).join('')}</div>
         <h3 class="today-q">${q.title} <small>${today.step + 1} из ${steps.length}</small></h3>
         <div class="today-opts">${todayOptions(q).map((o) => `<button type="button" class="today-opt" data-answer="${q.key}" data-val="${o.v}">
-          <span class="today-e">${o.e}</span><b>${o.label}${o.adult ? AGE_BADGE : ''}</b>${o.hint || fromProfile(q, o) ? `<small>${o.hint || 'как в твоём профиле'}</small>` : ''}</button>`).join('')}</div>
+          ${emo(o.e, 'today-e')}<b>${o.label}${o.adult ? AGE_BADGE : ''}</b>${o.hint || fromProfile(q, o) ? `<small>${o.hint || 'как в твоём профиле'}</small>` : ''}</button>`).join('')}</div>
         ${today.step ? '<div class="draft-links"><button type="button" data-today="back">← Назад</button></div>' : ''}`;
     }
     const startAt = new Date(Date.now() + today.startIn * 60000);
     const wx = weatherAt(startAt);
     if (!today.picks) return head + wxHtml(wx) + '<p class="empty">Подбираю места…</p>';
     const bad = !!(wx && wx.bad);
-    const sum = steps.map((q) => { const o = todayOpt(q, today.ans[q.key]); return o ? `<span class="tag">${o.e} ${o.label}</span>` : ''; }).join('');
+    const sum = steps.map((q) => { const o = todayOpt(q, today.ans[q.key]); return o ? `<span class="tag">${emo(o.e)} ${o.label}</span>` : ''; }).join('');
     const ps = today.picks;
     const arrive = (p) => new Date(startAt.getTime() + travelMin(p) * 60000);
     const w = today.ans.where;
@@ -2587,7 +2600,7 @@
       if (cands.length) today.note = 'В это время почти всё закрыто — вот что откроется в ближайшие часы';
     } else if (wider && !today.note) today.note = where.v === 'map' ? 'На видимой части карты мест мало — добавил вокруг' : where.v === 'center' ? 'В центре подходящего мало — добавил рядом с ним' : 'Совсем рядом подходящего мало — добавил чуть дальше';
     else if (bad && (a.mood === 'walk' || a.mood === 'any')) today.note = 'Погода не для прогулок — выше места под крышей';
-    const scale = tiredOf('travel') ? where.scale * 0.6 : where.scale; // утомляет дорога — ближнее важнее
+    const scale = prefersNear() ? where.scale * 0.6 : where.scale; // утомляет дорога или «недалеко» — ближнее важнее
     const score = (x) => placeQuality(x.p, prefer) * (strict && det.test(x.p) ? 1.5 : 1) / (1 + x.d / scale);
     let top = cands.map((x) => ({ p: x.p, s: score(x) })).sort((x, y) => y.s - x.s).slice(0, 14);
     const fresh = top.filter((x) => !today.seen.has(x.p.id));
@@ -2722,7 +2735,7 @@
     'Пресненский район', 'Таганский район', 'Тверской район', 'район Хамовники', 'район Якиманка']);
   const AWARDS = [
     { id: 'first', e: '👣', title: 'Первый шаг', text: 'Первое место', of: 'places', need: 1 },
-    { id: 'places10', e: '🧭', title: 'Исследователь', text: '10 мест', of: 'places', need: 10 },
+    { id: 'places10', e: '🧭', title: 'Иссле­дова­тель', text: '10 мест', of: 'places', need: 10 },
     { id: 'places50', e: '🏆', title: 'Знаток Москвы', text: '50 мест', of: 'places', need: 50 },
     { id: 'coffee', e: '☕', title: 'Кофеман', text: '5 кофеен', of: 'coffee', need: 5 },
     { id: 'food', e: '🍽', title: 'Гурман', text: '5 мест с едой', of: 'food', need: 5 },
@@ -2731,7 +2744,7 @@
     { id: 'mall', e: '🛍', title: 'Шопоголик', text: '3 ТЦ или фудкорта', of: 'mall', need: 3 },
     { id: 'night', e: '🍸', title: 'Ночная жизнь', text: '3 бара', of: 'night', need: 3, adult: true },
     { id: 'center', e: '🏰', title: 'Сердце города', text: '10 мест в центре', of: 'center', need: 10 },
-    { id: 'districts5', e: '🗺', title: 'Путешественник', text: '5 районов', of: 'districts', need: 5 },
+    { id: 'districts5', e: '🗺', title: 'Путе­шест­венник', text: '5 районов', of: 'districts', need: 5 },
     { id: 'districts20', e: '🌍', title: 'Вся Москва', text: '20 районов', of: 'districts', need: 20 },
     { id: 'route1', e: '🚶', title: 'На маршруте', text: 'Первый маршрут', of: 'routes', need: 1 },
     { id: 'route5', e: '🥾', title: 'Бывалый', text: '5 маршрутов', of: 'routes', need: 5 },
@@ -2773,7 +2786,7 @@
     const bar = (v, max) => `<div class="aw-bar"><i style="width:${Math.min(100, (v / max) * 100)}%"></i></div>`;
     const badges = list.map((a) => {
       const on = got.has(a.id), v = Math.min(s[a.of] || 0, a.need);
-      return `<div class="award${on ? ' award--on' : ''}"><span class="award-e">${a.e}</span><b>${a.title}</b>
+      return `<div class="award${on ? ' award--on' : ''}">${emo(a.e, 'award-e')}<b>${a.title}</b>
         <small>${on ? 'Получено' : a.text}</small>${on || a.need === 1 ? '' : `<div class="aw-mini">${bar(v, a.need)}<em>${v}/${a.need}</em></div>`}</div>`;
     }).join('');
     const been = [...visited].reverse().map((id) => byId.get(id)).filter(Boolean);
@@ -2805,7 +2818,8 @@
         <a href="#" data-doc="privacy">Политика обработки персональных данных</a>
         <a href="#" data-doc="consent">Согласие на обработку персональных данных</a>
       </div>
-      <button class="link-btn link-btn--danger" type="button" data-awards="withdraw">Отозвать согласие и удалить мои данные</button>`;
+      <button class="link-btn link-btn--danger" type="button" data-awards="withdraw">Отозвать согласие и удалить мои данные</button>
+      <p class="f-note credits">Значки эмодзи — Twemoji (© Twitter, Inc. и другие авторы), лицензия CC BY 4.0. Фото мест — Wikimedia Commons, автор и лицензия указаны у каждого фото.</p>`;
   }
 
   function openAwards() {
@@ -2819,7 +2833,7 @@
     const after = awardsGot(awardStats());
     const fresh = awardsShown().find((a) => after.has(a.id) && !before.has(a.id));
     updateAwardBadge();
-    if (fresh) setTimeout(() => { haptic.notify('success'); toast(`${fresh.e} Новый значок: «${fresh.title}»!`); }, delay || 0);
+    if (fresh) setTimeout(() => { haptic.notify('success'); toast(`Новый значок: «${fresh.title}»!`, fresh.e); }, delay || 0);
   }
 
   function visitButtonHtml(p) {
@@ -2936,7 +2950,7 @@
       { v: 'mall', e: '🛍', label: 'ТЦ и шопинг' },
       { v: 'night', e: '🍸', label: 'Бары и кальянные', adult: true },
     ] },
-    { key: 'evening', title: 'Как выглядит твой идеальный вечер?', opts: [
+    { key: 'evening', multi: true, title: 'Как выглядит твой идеальный вечер?', sub: 'Можно выбрать один вариант или несколько', opts: [
       { v: 'dinner', e: '🍷', label: 'Ужин в хорошем ресторане' },
       { v: 'walk', e: '🌆', label: 'Долгая прогулка по городу' },
       { v: 'talk', e: '☕', label: 'Кофе и разговоры' },
@@ -3009,6 +3023,10 @@
   }
   const favCuisine = (p) => p.cat === 'food' && profile && (profile.cuisines || []).find((c) => CUISINE_RE[c] && CUISINE_RE[c].test(cuisineText(p)));
   const tiredOf = (v) => !!(profile && (profile.tired || []).includes(v));
+  // Идеальный вечер — список (раньше был один ответ строкой: такие профили тоже понимаем)
+  const evenings = () => (profile ? [].concat(profile.evening || []) : []);
+  // Ближнее важнее: утомляет долгая дорога или идеальный вечер — «выбраться ненадолго и недалеко»
+  const prefersNear = () => tiredOf('travel') || evenings().includes('short');
 
   // Множитель к оценке места по профилю: каждое правило — отдельная строчка, без случайностей
   function profileK(p) {
@@ -3016,8 +3034,8 @@
     let k = 1;
     const ints = profile.interests || [];
     if (ints.length) k *= ints.some((v) => interestMatch(p, v)) ? 1.35 : 0.8;          // твои интересы — выше
-    const ev = { dinner: p.cat === 'food' && (minPrice(p) || 0) >= 1000, walk: p.cat === 'photo', talk: p.cat === 'coffee', culture: p.cat === 'museum', bar: p.cat === 'night' }[profile.evening];
-    if (ev) k *= 1.2;                                                                  // похоже на идеальный вечер
+    const ev = { dinner: p.cat === 'food' && (minPrice(p) || 0) >= 1000, walk: p.cat === 'photo', talk: p.cat === 'coffee', culture: p.cat === 'museum', bar: p.cat === 'night' };
+    if (evenings().some((v) => ev[v])) k *= 1.2;                                      // похоже на идеальный вечер
     if (tiredOf('crowds')) {                                                           // меньше всего на слуху, но с высокой оценкой
       if ((p.pop || 0) > 20000) k *= 0.6;
       else if ((p.pop || 0) < 3000 && p.rating >= 4.7) k *= 1.15;
@@ -3036,7 +3054,7 @@
     const label = (key, v) => { const o = PROFILE_Q.find((q) => q.key === key).opts.find((x) => x.v === v); return o ? o.label.toLowerCase() : ''; };
     const parts = [];
     if ((profile.interests || []).length) parts.push('Интересы: ' + profile.interests.map((v) => label('interests', v)).join(', '));
-    if (profile.evening) parts.push('идеальный вечер: ' + label('evening', profile.evening));
+    if (evenings().length) parts.push('идеальный вечер: ' + evenings().map((v) => label('evening', v)).join(', '));
     if ((profile.cuisines || []).length) parts.push('кухни: ' + profile.cuisines.map((v) => label('cuisines', v)).join(', '));
     if (profile.budget !== undefined) parts.push('бюджет: ' + label('budget', profile.budget));
     return parts.join(' · ');
@@ -3061,7 +3079,7 @@
       <h3 class="today-q">${q.title} <small>${prof.step + 1} из ${PROFILE_Q.length}</small></h3>
       ${q.sub ? `<p class="near-note">${q.sub}</p>` : ''}
       <div class="today-opts">${q.opts.map((o) => `<button type="button" class="today-opt${on(o) ? ' today-opt--on' : ''}" data-prof-ans="${q.key}" data-val="${o.v}" aria-pressed="${on(o)}">
-        <span class="today-e">${o.e}</span><b>${o.label}${o.adult ? AGE_BADGE : ''}</b></button>`).join('')}</div>
+        ${emo(o.e, 'today-e')}<b>${o.label}${o.adult ? AGE_BADGE : ''}</b></button>`).join('')}</div>
       ${q.multi ? `<button class="btn btn-primary btn-wide" type="button" data-prof="next">${(cur || []).length ? 'Дальше' : 'Пропустить вопрос'}</button>` : ''}
       <div class="draft-links">${prof.step ? '<button type="button" data-prof="back">← Назад</button>' : ''}<button type="button" data-prof="skip">${profile ? 'Отмена' : 'Заполню потом'}</button></div>`;
   }
@@ -3070,6 +3088,7 @@
 
   function openProfile(first) {
     prof = { step: 0, ans: profile ? JSON.parse(JSON.stringify(profile)) : {}, first: !!first };
+    if (typeof prof.ans.evening === 'string') prof.ans.evening = [prof.ans.evening]; // старый профиль: был один ответ
     renderProfile();
     openSheet('profile');
   }
@@ -3077,7 +3096,7 @@
   function profileNext() {
     prof.step++;
     if (prof.step >= PROFILE_Q.length) {
-      profile = Object.assign({ interests: [], tired: [], cuisines: [] }, prof.ans, { ts: Date.now() });
+      profile = Object.assign({ interests: [], evening: [], tired: [], cuisines: [] }, prof.ans, { ts: Date.now() });
       saveProfile();
       haptic.notify('success');
     }
@@ -3158,7 +3177,7 @@
   function openOnboard() {
     const ob = $('#onboard');
     ob.querySelector('.onboard-track').innerHTML = ONBOARD.map((s) => `<div class="onboard-slide">
-        <div class="onboard-art">${s.e}</div><h2>${s.title}</h2><p>${s.text}</p></div>`).join('');
+        <div class="onboard-art">${emo(s.e)}</div><h2>${s.title}</h2><p>${s.text}</p></div>`).join('');
     ob.querySelector('.onboard-dots').innerHTML = ONBOARD.map(() => '<i></i>').join('');
     showOnboardSlide(0);
     ob.hidden = false;
@@ -3197,47 +3216,23 @@
     } else show();
   }
 
-  // Первый показ эмодзи дорогой: браузер ищет для них шрифт, и шторка с эмодзи («Куда сегодня?»,
-  // «Достижения», «Маршруты») в первый раз открывалась с заминкой. Показываем их заранее, в паузе,
-  // за краем экрана — потом шрифт уже найден
+  // Картинки эмодзи заранее загружаем и раскодируем, пока телефон свободен (по несколько за раз):
+  // в шторках «Куда сегодня?», «Маршруты», «Достижения» они тогда появляются сразу, без мигания.
+  // Потом заранее верстаем шторку маршрута
+  const warmedEmoji = [];
   function warmEmoji() {
-    // Шрифт готовится отдельно под каждый размер — поэтому прогреваем эмодзи ровно в тех размерах,
-    // в которых они встречаются: плитки вопросов, сводка ответов, форма маршрута, погода, значки и т. д.
-    const qs = [Q_MOOD, Q_WHERE, Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET].concat(Object.values(Q_DETAIL), PROFILE_Q);
-    const qEmoji = [].concat(...qs.map((q) => q.opts.map((o) => o.e)));
-    const wxEmoji = '☀️ 🌙 🌤 ⛅ ☁️ 🌫 🌦 🌧 🌨 ⛈ 🌡'.split(' ');
-    const routeEmoji = READY_ROUTES.map((r) => r.emoji).filter(Boolean).concat(['✨', '🚶', '📍', '🤝']);
-    const jobs = [
-      [26, '400', qEmoji],                                              // плитки «Куда сегодня?»
-      [13, '700', qEmoji],                                              // сводка ответов
-      [30, '400', wxEmoji.concat(AWARDS.map((a) => a.e))],              // погода и значки
-      [13.5, '700', GEN_WANT.map((o) => o.label.split(' ')[0]).concat(['☔', '✨']).concat(wxEmoji)], // форма маршрута
-      [24, '400', routeEmoji],                                          // карточки маршрутов
-      [22, '800', routeEmoji.concat(qEmoji)],                           // заголовок маршрута
-      [22, '400', COLLECTIONS.map((c) => c.emoji)],                     // подборки в поиске
-      [14, '700', ['🎉', '🏆', '✓', '＋'].concat(AWARDS.map((a) => a.e))], // тосты
-    ].map(([size, weight, list]) => [size, weight, [...new Set(list)]]);
+    const codes = [...EMOJI_SET];
     const idle = window.requestIdleCallback || ((cb) => setTimeout(() => cb({ timeRemaining: () => 8 }), 60));
-    const box = document.createElement('div');
-    box.setAttribute('aria-hidden', 'true');
-    box.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none;contain:strict;width:400px;height:40px';
-    document.body.appendChild(box);
-    let j = 0, i = 0;
-    // Понемногу — по паре эмодзи за раз, пока телефон свободен: каждая порция — несколько
-    // миллисекунд, и карта не подвисает (всё разом занимало заметную долю секунды)
+    let i = 0;
     const step = (dl) => {
       do {
-        const [size, weight, list] = jobs[j];
-        const s = document.createElement('span');
-        s.style.cssText = `font-size:${size}px;font-weight:${weight}`;
-        s.textContent = list.slice(i, i + 2).join(' ');
-        box.appendChild(s);
-        void s.offsetWidth;
-        i += 2;
-        if (i >= list.length) { j++; i = 0; box.textContent = ''; }
-      } while (j < jobs.length && dl.timeRemaining() > 6);
-      if (j < jobs.length) idle(step);
-      else { box.remove(); idle(warmRouteSheet); }
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = `img/emoji/${codes[i++]}.svg`;
+        if (img.decode) img.decode().catch(() => {});
+        warmedEmoji.push(img); // держим ссылку, чтобы картинка осталась в памяти
+      } while (i < codes.length && dl.timeRemaining() > 4);
+      if (i < codes.length) idle(step); else idle(warmRouteSheet);
     };
     idle(step);
   }
@@ -3277,6 +3272,7 @@
     // Согласие с документами спрашиваем сразу (поверх заставки): человек читает их, пока грузится карта
     let legalOk = null;
     const legalReady = new Promise((res) => { legalOk = res; });
+    $('.legal-mark').innerHTML = emo('📍');
     ensureLegal(() => legalOk());
 
     buildChips();
@@ -3483,7 +3479,7 @@
         const on = !visited.has(p.id);
         const routeDone = toggleVisited(p.id);
         a.outerHTML = visitButtonHtml(p);
-        if (on && !routeDone) toast('Отмечено! Все места — в «Достижениях» 🏆');
+        if (on && !routeDone) toast('Отмечено! Все места — в «Достижениях»', '🏆');
       }
       else if (a.dataset.action === 'route' && p) { haptic.impact(); openLink(routeUrl(p)); }
       else if (a.dataset.action === 'site') openLink(a.dataset.url);
