@@ -1380,15 +1380,20 @@
 
   // ---------- «Когда идёшь?» ----------
   // Время по Москве: «сегодня в 19:00» считаем от московской даты, где бы ни был телефон (Москва — UTC+3)
+  // Форматтеры создаём один раз: создание Intl.DateTimeFormat на телефоне стоит миллисекунды,
+  // а маршрут спрашивает время по каждой остановке
+  let mskFmt = null, clockFmt = null;
   const mskParts = (d) => {
+    mskFmt = mskFmt || new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', hourCycle: 'h23' });
     const p = {};
-    for (const x of new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(d)) p[x.type] = x.value;
+    for (const x of mskFmt.formatToParts(d)) p[x.type] = x.value;
     return p;
   };
-  const clock = (d) => new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }).format(d);
+  const clock = (d) => (clockFmt = clockFmt || new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })).format(d);
 
-  // «Выхожу через …» — ползунок: шаги в минутах от «сейчас» до суток
-  const START_STEPS = [0, 15, 30, 45, 60, 90].concat(Array.from({ length: 23 }, (_, i) => (i + 2) * 60)); // дальше — каждый час до суток
+  // «Выхожу через …» — ползунок: шаги в минутах от «сейчас»
+  // дальше — каждый час, до полутора суток: так можно спланировать и «завтра днём»
+  const START_STEPS = [0, 15, 30, 45, 60, 90].concat(Array.from({ length: 35 }, (_, i) => (i + 2) * 60));
   const inText = (m) => (m < 60 ? `${m} мин` : `${String(m / 60).replace('.', ',')} ч`);
   function startLabel(m) {
     if (!m) return 'Сейчас';
@@ -1507,7 +1512,7 @@
         <div class="f-label budget-head">Выхожу <b id="start-value">${startLabel(r.startIn || 0)}</b></div>
         <input class="budget-range" type="range" min="0" max="${START_STEPS.length - 1}" step="1" value="${si}" data-rstart
           style="--fill:${(si / (START_STEPS.length - 1)) * 100}%" aria-label="Через сколько выходишь">
-        <div class="budget-scale"><span>Сейчас</span><span>Через сутки</span></div>
+        <div class="budget-scale"><span>Сейчас</span><span>Через 1,5 суток</span></div>
       </div>
       <ol class="route-stops" id="route-stops">${stops}</ol>
       ${doneCount ? `<p class="route-progress">Отмечено ${doneCount} из ${r.ids.length}${doneCount === r.ids.length ? ' — маршрут пройден 🎉' : ''}</p>` : ''}
@@ -1596,13 +1601,152 @@
     toast(after < before - 0.05 ? `Путь стал короче на ${kmText(before - after)}` : 'Порядок уже удобный');
   }
 
+  // ---------- Планировщик прогулки: общий для «Собери маршрут за меня» и «Куда сегодня?» ----------
+  // Цепочка мест недалеко друг от друга. Каждое будет открыто, когда до него дойдёшь, и в нём успеешь
+  // побыть; еда — к обеду или ужину, музеи — пораньше (закрываются раньше), бар — в конце; в непогоду
+  // прогулки меняются на места под крышей. Всё — по данным Яндекс Карт (часы, цены, оценки, рубрики)
+  const PLAN_DUR = [
+    { v: 'short', label: '1–2 ч', max: 130, n: 2 },
+    { v: 'mid', label: '2–3 ч', max: 200, n: 3 },
+    { v: 'long', label: 'Полдня', max: 330, n: 4 },
+    { v: 'day', label: 'Весь день', max: 540, n: 6 },
+  ];
+  const PLAN_WHEN = [
+    { v: 'now', label: 'Сейчас' },
+    { v: 'hour', label: 'Через час' },
+    { v: 'evening', label: 'Вечером' },
+    { v: 'tomorrow', label: 'Завтра днём' },
+  ];
+  const PLAN_NAMES = { coffee: 'кофе', photo: 'прогулка', food: 'еда', museum: 'музей', night: 'бар', mall: 'ТЦ' };
+
+  // Через сколько минут выходим — ровно по шагам ползунка «Выхожу» в карточке маршрута
+  function whenOffset(v) {
+    const now = new Date();
+    const cur = +mskParts(now).hour * 60 + now.getUTCMinutes(); // у Москвы сдвиг ровно в часах — минуты как в UTC
+    let target = 0;
+    if (v === 'hour') target = 60;
+    else if (v === 'evening') target = Math.max(0, 19 * 60 - cur);   // к 19:00 (если уже вечер — сразу)
+    else if (v === 'tomorrow') target = 1440 - cur + 12 * 60;         // завтра к полудню
+    return START_STEPS.reduce((best, s) => (Math.abs(s - target) < Math.abs(best - target) ? s : best), 0);
+  }
+
+  const isIndoor = (p) => p.cat === 'museum' || p.cat === 'mall' || (p.cat === 'photo' && p.setting === 'indoor');
+  // 'indoor' — любое место под крышей для прогулки в непогоду
+  const slotMatch = (p, slot) => (slot === 'indoor' ? isIndoor(p) : p.cat === slot);
+  // Если для шага ничего не нашлось — чем можно заменить
+  const SLOT_ALT = { museum: ['photo', 'indoor'], photo: ['indoor'], indoor: ['museum', 'mall'], mall: ['indoor'], coffee: ['food'], food: ['coffee'], night: [] };
+  // Сети («Кофемания», «Даблби»…) — не больше одной точки за прогулку
+  const chainKeys = new Map();
+  const chainKey = (p) => chainKeys.get(p.id) || chainKeys.set(p.id, norm(p.name).replace(/[^a-zа-я0-9]/g, '')).get(p.id);
+  // Места по типу шага — раскладываем один раз (и заново, когда догрузились места по районам)
+  let typeIndex = null, typeIndexFor = 0;
+  function placesOfType(type) {
+    if (typeIndexFor !== curated.length) {
+      typeIndex = { indoor: [] };
+      for (const p of curated) { (typeIndex[p.cat] = typeIndex[p.cat] || []).push(p); if (isIndoor(p)) typeIndex.indoor.push(p); }
+      typeIndexFor = curated.length;
+    }
+    return typeIndex[type] || [];
+  }
+
+  // Насколько место хорошее само по себе: оценки в Яндексе, их число; где уже был — реже
+  function placeQuality(p, prefer) {
+    let q = Math.sqrt(p.pop || 30) * (p.rating >= 4.8 ? 1.3 : p.rating >= 4.6 ? 1.1 : 1);
+    if (visited.has(p.id)) q *= 0.5;
+    return prefer ? q * prefer(p) : q;
+  }
+
+  // Из каких шагов состоит прогулка. want — что человек хочет: 'coffee', 'food', 'photo', 'museum', 'mall', 'night'
+  function planSlots(want, n, startAt, bad) {
+    const has = (t) => want.has(t);
+    const acts = ['museum', 'mall', 'photo'].filter(has); // музеи — первыми: закрываются раньше
+    const coffee = has('coffee') && +mskParts(startAt).hour < 20 ? 1 : 0;
+    const meals = has('food') ? (n >= 6 ? 2 : 1) : 0;
+    const bar = has('night') ? 1 : 0;
+    const body = [];
+    for (let i = 0; body.length < n - coffee - meals - bar; i++) {
+      // прогулки можно повторять, остальное — по кругу из выбранного
+      body.push(acts.length ? acts[i % acts.length] : 'photo');
+    }
+    const out = coffee ? ['coffee'] : [];
+    if (meals === 2) { const k = Math.ceil(body.length / 2); out.push(...body.slice(0, k), 'food', ...body.slice(k), 'food'); }
+    else if (meals && n >= 4) { const k = Math.ceil(body.length / 2); out.push(...body.slice(0, k), 'food', ...body.slice(k)); }
+    else { out.push(...body); if (meals) out.push('food'); }
+    if (bar) out.push('night');
+    return bad ? out.map((t) => (t === 'photo' ? 'indoor' : t)) : out;
+  }
+
+  // Выбор места для шага: рядом с предыдущим (радиус растёт, если рядом пусто), открыто к приходу,
+  // в бюджете; из лучших — случайное, но лучшие выпадают чаще — так «Ещё вариант» даёт новое
+  // reserve — сколько денег оставить на еду дальше по маршруту (чтобы кофе и музеи не съели весь бюджет)
+  function choosePlace(type, cur, t, walking, o, spent, reserve) {
+    const near = [];
+    for (const p of placesOfType(type)) {
+      // сначала дешёвая проверка «не дальше ~3,3 км» по координатам — точное расстояние только для ближних
+      if (Math.abs(p.lat - cur.lat) > 0.03 || Math.abs(p.lon - cur.lon) > 0.053) continue;
+      if (o.exclude.has(p.id) || o.chains.has(chainKey(p))) continue;
+      if (p.cat === 'night' && (!adultOk || o.noNight)) continue;
+      if (p.rating && p.rating < 4.4) continue;
+      if (o.newOnly && visited.has(p.id)) continue;
+      if (o.budget !== null && o.budget !== undefined) {
+        const r = priceRange(p); // бесплатное ничего не стоит — подходит при любом остатке бюджета
+        if (!r || (r[1] > 0 && spent + (r[0] + r[1]) / 2 + (reserve || 0) > o.budget)) continue;
+      }
+      const d = distance(cur, p);
+      if (d <= 3200) near.push({ p, d });
+    }
+    for (const radius of [800, 1400, 2200, 3200]) {
+      const ok = near.filter(({ p, d }) => {
+        if (d > radius) return false;
+        const arrive = new Date(t + (walking ? Math.max(1, Math.round((d * 1.3) / WALK_M_PER_MIN)) : 0) * 60000);
+        const left = Hours.minutesLeft(p.hours, arrive);
+        return left === null ? p.cat === 'photo' : left >= stayFor(p) * 0.7; // успеть побыть хотя бы 70% времени
+      });
+      if (ok.length >= 3 || (ok.length && radius === 3200)) {
+        const top = ok.map((x) => ({ p: x.p, s: placeQuality(x.p, o.prefer) / (1 + x.d / 450) })).sort((a, b) => b.s - a.s).slice(0, 5);
+        let r = Math.random() * top.reduce((s, x) => s + x.s, 0);
+        for (const x of top) { r -= x.s; if (r <= 0) return x.p; }
+        return top[0].p;
+      }
+    }
+    return null;
+  }
+
+  // o: { from, me, startAt, slots, max, budget, spent, prefer, exclude, chains, newOnly, noNight }
+  function planRoute(o) {
+    o = Object.assign({ exclude: new Set(), chains: new Set(), spent: 0 }, o);
+    o.exclude = new Set(o.exclude); o.chains = new Set(o.chains);
+    const ids = [], skipped = [];
+    let subs = 0; // сколько шагов пришлось заменить (вместо еды — кофе и т. п.)
+    let cur = o.from, t = o.startAt.getTime(), spent = o.spent, total = 0;
+    for (let si = 0; si < o.slots.length; si++) {
+      const slot = o.slots[si];
+      const walking = ids.length > 0 || o.me;
+      let pick = null;
+      const reserve = o.budget ? o.slots.slice(si + 1).filter((s) => s === 'food').length * Math.min(800, o.budget * 0.45) : 0;
+      for (const type of [slot].concat(SLOT_ALT[slot] || [])) { pick = choosePlace(type, cur, t, walking, o, spent, reserve); if (pick) { if (type !== slot) subs++; break; } }
+      if (!pick) { skipped.push(slot); continue; }
+      const leg = walking ? legMin(cur, pick) : 0, stay = stayFor(pick);
+      if (total + leg + stay > o.max && ids.length >= 2) break;
+      ids.push(pick.id); o.exclude.add(pick.id); o.chains.add(chainKey(pick));
+      const r = priceRange(pick); if (r) spent += (r[0] + r[1]) / 2;
+      total += leg + stay; t += (leg + stay) * 60000; cur = pick;
+    }
+    return { ids, skipped, subs };
+  }
+  // Из нескольких попыток лучше та, где больше мест, а при равенстве — меньше замен
+  function betterPlan(a, b) {
+    return a.ids.length !== b.ids.length ? a.ids.length > b.ids.length : a.subs < b.subs;
+  }
+
   // ---------- «Собери маршрут за меня» ----------
-  // Цепочка «кофе → прогулка → еда» из хороших мест рядом: каждое следующее — недалеко от предыдущего,
-  // укладывается в бюджет и будет открыто, когда до него дойдёшь.
-  const GEN_DUR = [
-    { v: 'short', label: '1–2 ч', max: 130, steps: ['coffee', 'photo'] },
-    { v: 'mid', label: '2–3 ч', max: 200, steps: ['coffee', 'photo', 'food'] },
-    { v: 'long', label: 'Полдня', max: 330, steps: ['coffee', 'photo', 'photo', 'food'] },
+  const GEN_WANT = [
+    { v: 'coffee', label: '☕ Кофе' },
+    { v: 'food', label: '🍽 Еда' },
+    { v: 'photo', label: '🌳 Прогулки' },
+    { v: 'museum', label: '🏛 Музеи' },
+    { v: 'mall', label: '🛍 ТЦ' },
+    { v: 'night', label: '🍸 Бар 18+' },
   ];
   const GEN_BUDGET = [
     { v: 0, label: 'Бесплатно' },
@@ -1610,86 +1754,71 @@
     { v: 2500, label: 'до 2 500 ₽' },
     { v: null, label: 'Любой' },
   ];
-  const gen = { dur: 'mid', budget: 2500, museum: false, rain: false, bar: false, open: false };
-
-  function genStepsFor() {
-    let steps = GEN_DUR.find((d) => d.v === gen.dur).steps.slice();
-    if (gen.rain) steps = steps.map((c) => (c === 'photo' ? 'museum' : c)); // в дождь — вместо прогулки музей
-    else if (gen.museum) { const i = steps.indexOf('photo'); if (i >= 0) steps[i] = 'museum'; else steps.splice(1, 0, 'museum'); }
-    if (gen.budget === 0) steps = steps.map((c) => (c === 'coffee' || c === 'food' ? 'photo' : c)); // бесплатно — только прогулки и бесплатные музеи
-    if (gen.bar && adultOk) steps.push('night');
-    return steps;
+  const gen = { dur: 'mid', when: 'now', budget: 2500, want: new Set(['coffee', 'photo', 'food']), indoor: false, newOnly: false, open: false };
+  // Выбор запоминаем: в следующий раз форма уже настроена
+  (() => {
+    const s = readJson('gen', null);
+    if (!s) return;
+    if (PLAN_DUR.some((d) => d.v === s.dur)) gen.dur = s.dur;
+    if (GEN_BUDGET.some((b) => b.v === s.budget)) gen.budget = s.budget;
+    if (Array.isArray(s.want) && s.want.length) gen.want = new Set(s.want.filter((w) => GEN_WANT.some((x) => x.v === w)));
+    gen.indoor = !!s.indoor; gen.newOnly = !!s.newOnly;
+  })();
+  function saveGen() {
+    try { localStorage.setItem('gen', JSON.stringify({ dur: gen.dur, budget: gen.budget, want: [...gen.want], indoor: gen.indoor, newOnly: gen.newOnly })); } catch (e) { /* хранилище недоступно */ }
   }
 
   async function generateRoute() {
     haptic.impact();
-    let from = null, me = false;
-    try {
-      const pos = state.user || (await Promise.race([getPosition(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]));
-      const b = cfg.MAP_BOUNDS;
-      if (pos.lat > b.south && pos.lat < b.north && pos.lon > b.west && pos.lon < b.east) { from = pos; me = true; state.user = pos; MapView.setUser(pos.lat, pos.lon, userEl()); }
-    } catch (e) { /* без геолокации — от центра карты */ }
-    if (!from) { const v = state.view.bounds; from = { lat: (v.north + v.south) / 2, lon: (v.east + v.west) / 2 }; }
-
-    const steps = genStepsFor();
-    const max = GEN_DUR.find((d) => d.v === gen.dur).max + (gen.bar ? 60 : 0);
-    const used = new Set(), ids = [], skipped = [];
-    let cur = from, clock = new Date(), spent = 0, total = 0;
-    for (const cat of steps) {
-      let pick = null;
-      for (const radius of [900, 1600, 2600]) {
-        const cands = curated.filter((p) => {
-          if (p.cat !== cat || used.has(p.id) || (p.rating && p.rating < 4.4)) return false;
-          if (cat === 'night' && !adultOk) return false;
-          const d = distance(cur, p);
-          if (d > radius) return false;
-          const r = priceRange(p);
-          if (gen.budget !== null && (!r || spent + (r[0] + r[1]) / 2 > gen.budget)) return false; // по середине вилки цен
-          const arrive = new Date(clock.getTime() + (ids.length || me ? legMin(cur, p) : 0) * 60000);
-          const left = Hours.minutesLeft(p.hours, arrive);
-          return left === null ? cat === 'photo' : left >= stayFor(p) * 0.7; // успеть побыть хотя бы 70% времени
-        });
-        if (cands.length) {
-          // из лучших вариантов — случайный, чтобы «Ещё вариант» давал новый маршрут
-          const score = (p) => Math.sqrt(p.pop || 1) * (p.rating >= 4.8 ? 1.3 : 1) / (1 + distance(cur, p) / 600);
-          const top = cands.sort((a, b) => score(b) - score(a)).slice(0, 6);
-          pick = top[Math.floor(Math.random() * top.length)];
-          break;
-        }
-      }
-      if (!pick) { skipped.push(cat); continue; }
-      const leg = ids.length || me ? legMin(cur, pick) : 0;
-      if (total + leg + stayFor(pick) > max && ids.length >= 2) break;
-      ids.push(pick.id); used.add(pick.id);
-      const r = priceRange(pick); if (r) spent += (r[0] + r[1]) / 2;
-      total += leg + stayFor(pick);
-      clock = new Date(clock.getTime() + (leg + stayFor(pick)) * 60000);
-      cur = pick;
+    const { from, me } = await startPoint();
+    const startIn = whenOffset(gen.when);
+    const startAt = new Date(Date.now() + startIn * 60000);
+    const wx = weatherAt(startAt);
+    const bad = gen.indoor || !!(wx && wx.bad);
+    const dur = PLAN_DUR.find((d) => d.v === gen.dur);
+    const want = new Set([...gen.want].filter((w) => w !== 'night' || adultOk));
+    // бесплатно — только прогулки и бесплатные музеи
+    if (gen.budget === 0) { want.delete('coffee'); want.delete('food'); want.delete('night'); want.add('photo'); }
+    const slots = planSlots(want, dur.n, startAt, bad);
+    // несколько попыток — берём ту, где больше мест
+    let best = null;
+    for (let i = 0; i < 6; i++) {
+      const pl = planRoute({ from, me, startAt, slots, max: dur.max + (want.has('night') ? 60 : 0), budget: gen.budget, newOnly: gen.newOnly,
+        prefer: bad ? (p) => (isIndoor(p) || p.setting === 'indoor' ? 1.3 : 1) : null });
+      if (!best || betterPlan(pl, best)) best = pl;
+      if (pl.ids.length === slots.length && !pl.subs) break;
     }
-    if (ids.length < 2) { toast('Рядом не нашлось подходящих мест — сдвинь карту или смягчи условия'); return; }
-    const names = { coffee: 'кофе', photo: 'прогулка', food: 'еда', museum: 'музей', night: 'бар' };
-    const title = ids.map((id) => names[byId.get(id).cat]).join(' → ');
-    showRoute({ id: 'gen', title: title[0].toUpperCase() + title.slice(1), emoji: '✨', ids, gen: true, fromMe: me ? from : null });
-    const why = { museum: 'Музеи', coffee: 'Кофейни', food: 'Места с едой', night: 'Бары', photo: 'Парки и красивые места' };
-    const miss = [...new Set(skipped)].filter((c) => !ids.some((id) => byId.get(id).cat === c));
-    if (miss.length) toast(`${miss.map((c) => why[c]).join(' и ')} рядом сейчас закрыты или не по бюджету — собрал без них`);
+    if (best.ids.length < 2) { toast('Рядом не нашлось подходящих мест — сдвинь карту, выбери другое время или смягчи условия'); return; }
+    const title = best.ids.map((id) => PLAN_NAMES[byId.get(id).cat]).join(' → ');
+    showRoute({ id: 'gen', title: title[0].toUpperCase() + title.slice(1), emoji: '✨', ids: best.ids, gen: true, fromMe: me ? from : null, startIn });
+    const why = { museum: 'Музеи', coffee: 'Кофейни', food: 'Места с едой', night: 'Бары', photo: 'Парки и красивые места', mall: 'ТЦ', indoor: 'Места под крышей' };
+    const got = new Set(best.ids.map((id) => byId.get(id).cat));
+    const miss = [...new Set(best.skipped)].filter((c) => !got.has(c) && why[c]);
+    if (miss.length) toast(`${miss.map((c) => why[c]).join(' и ')} рядом в это время закрыты или не по бюджету — собрал без них`);
+    else if (bad && !gen.indoor && gen.want.has('photo')) toast(`${wx.e} ${wx.tip.split(' — ')[0]} — вместо прогулок места под крышей`);
   }
 
   function genFormHtml() {
     const seg = (list, key) => list.map((o) => `<button type="button" class="seg-btn${gen[key] === o.v ? ' active' : ''}" data-gen="${key}" data-val="${o.v}">${o.label}</button>`).join('');
     const tog = (key, label) => `<button type="button" class="seg-btn${gen[key] ? ' active' : ''}" data-gen-toggle="${key}">${label}</button>`;
+    const wants = GEN_WANT.map((o) => `<button type="button" class="seg-btn${gen.want.has(o.v) ? ' active' : ''}" data-gen-want="${o.v}">${o.label}</button>`).join('');
+    const wx = gen.open ? weatherAt(new Date(Date.now() + whenOffset(gen.when) * 60000)) : null;
+    const wxNote = wx ? `<p class="gen-wx">${wx.e} ${wx.label} ${wx.temp}${wx.t ? ', ' + wx.t : ''}${wx.bad && gen.want.has('photo') && !gen.indoor ? ' — прогулки заменю на места под крышей' : ''}</p>` : '';
     return `<div class="gen${gen.open ? ' gen--open' : ''}">
       <button type="button" class="gen-head" data-gen-open>
         <span class="route-emoji">✨</span>
-        <span class="route-title"><b>Собери маршрут за меня</b><small>Кофе, прогулка и еда рядом — под твоё время и бюджет</small></span>
+        <span class="route-title"><b>Собери маршрут за меня</b><small>Выбери, что хочется, — соберу цепочку мест рядом под время, погоду и бюджет</small></span>
         <span class="ya-arrow">${gen.open ? '−' : '+'}</span>
       </button>
       ${gen.open ? `<div class="gen-body">
-        <div class="f-label">Сколько времени</div><div class="seg">${seg(GEN_DUR, 'dur')}</div>
+        <div class="f-label">Что включить</div><div class="seg">${wants}</div>
+        <div class="f-label">Сколько времени</div><div class="seg">${seg(PLAN_DUR, 'dur')}</div>
+        <div class="f-label">Когда</div><div class="seg">${seg(PLAN_WHEN, 'when')}</div>
         <div class="f-label">Бюджет на человека</div><div class="seg">${seg(GEN_BUDGET, 'budget')}</div>
-        <div class="f-label">Ещё</div><div class="seg">${tog('museum', 'С музеем')}${tog('rain', 'Если дождь')}${tog('bar', 'Закончить в баре 18+')}</div>
+        <div class="f-label">Ещё</div><div class="seg">${tog('indoor', '☔ Только под крышей')}${tog('newOnly', '✨ Только новые места')}</div>
+        ${wxNote}
         <button type="button" class="btn btn-primary btn-wide" data-gen-go>Собрать маршрут</button>
-        <p class="f-note">Начнём от тебя (если разрешишь геолокацию) или от центра карты.</p>
+        <p class="f-note">Еда — к обеду или ужину, музеи — пока открыты, бар — в конце. Начну от тебя (если разрешишь геолокацию) или от центра карты.</p>
       </div>` : ''}
     </div>`;
   }
@@ -2035,9 +2164,10 @@
   }
 
   // ---------- Погода (Open-Meteo: бесплатно, без ключа и регистрации) ----------
-  // Погоду берём для центра Москвы — где ты, никуда не отправляется
+  // Погоду берём для центра Москвы — где ты, никуда не отправляется. Прогноз по часам — на полтора дня
+  // вперёд: подбор «на вечер» или «завтра днём» смотрит погоду на то время
   const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=55.75&longitude=37.62'
-    + '&current=temperature_2m,weather_code,is_day&hourly=precipitation_probability,weather_code&forecast_hours=8&timezone=Europe%2FMoscow';
+    + '&current=temperature_2m,weather_code,is_day&hourly=temperature_2m,precipitation_probability,weather_code&forecast_hours=40&timezone=Europe%2FMoscow';
   // Код погоды (WMO) → значок и слова; wet — осадки
   function weatherKind(code, day) {
     if (code === 0) return { e: day ? '☀️' : '🌙', t: 'ясно' };
@@ -2053,18 +2183,21 @@
     if (code >= 95) return { e: '⛈', t: 'гроза', wet: true };
     return { e: '🌡', t: '' };
   }
+  const tempText = (t) => (t > 0 ? '+' : t < 0 ? '−' : '') + Math.abs(t) + '°';
 
-  let weather = null; // { temp, e, t, bad, tip }; bad — непогода: лучше места под крышей
+  // weather: { temp, e, t, bad, tip, hours: Map('2026-10-19T19' → { code, prob, temp }) }; bad — непогода
+  let weather = null;
   function parseWeather(d) {
     const c = d.current, k = weatherKind(c.weather_code, c.is_day);
     const temp = Math.round(c.temperature_2m);
-    // осадки в ближайшие 6 часов
     const h = d.hourly || {}, nowH = c.time.slice(0, 13);
+    const hours = new Map();
     let soon = null, ahead = 0;
-    for (let i = 0; i < (h.time || []).length && ahead < 6; i++) {
-      if (h.time[i].slice(0, 13) <= nowH) continue;
-      ahead++;
-      if (weatherKind(h.weather_code[i]).wet || (h.precipitation_probability[i] || 0) >= 60) { soon = { at: h.time[i].slice(11, 16), ahead }; break; }
+    for (let i = 0; i < (h.time || []).length; i++) {
+      hours.set(h.time[i].slice(0, 13), { code: h.weather_code[i], prob: h.precipitation_probability[i] || 0, temp: Math.round(h.temperature_2m[i]) });
+      // осадки в ближайшие 6 часов
+      if (soon || h.time[i].slice(0, 13) <= nowH || ++ahead > 6) continue;
+      if (weatherKind(h.weather_code[i]).wet || (h.precipitation_probability[i] || 0) >= 60) soon = { at: h.time[i].slice(11, 16), ahead };
     }
     let tip, bad = false;
     if (k.wet) { tip = `Сейчас ${k.t} — лучше места под крышей`; bad = true; }
@@ -2072,14 +2205,31 @@
     else if (soon) { tip = `Около ${soon.at} обещают осадки — возьми зонт или выбирай места под крышей`; bad = soon.ahead <= 3; }
     else if (temp >= 28) tip = 'Жарко — ищи тень в парках или прохладу в музеях';
     else tip = c.is_day ? 'Без осадков — хорошо для прогулки' : 'Без осадков — можно погулять по вечернему городу';
-    return { temp: (temp > 0 ? '+' : temp < 0 ? '−' : '') + Math.abs(temp) + '°', e: k.e, t: k.t, bad, tip };
+    return { temp: tempText(temp), e: k.e, t: k.t, bad, tip, hours };
+  }
+
+  // Погода на время выхода: { label, e, t, bad, tip } или null, если прогноза нет
+  function weatherAt(date) {
+    if (!weather) return null;
+    if (date.getTime() - Date.now() < 45 * 60000) return Object.assign({ label: 'Сейчас в Москве' }, weather);
+    const p = mskParts(date);
+    const h = weather.hours.get(`${p.year}-${p.month}-${p.day}T${p.hour}`);
+    if (!h) return null;
+    const hour = +p.hour, k = weatherKind(h.code, hour >= 7 && hour < 19);
+    const wet = k.wet || h.prob >= 60;
+    const bad = wet || h.temp <= -10;
+    const tip = wet ? `Обещают ${k.wet ? k.t : 'осадки'} — лучше места под крышей`
+      : h.temp <= -10 ? 'Будет морозно — лучше кафе и музеи'
+      : h.temp >= 28 ? 'Будет жарко — ищи тень и прохладу' : 'Без осадков — хорошо для прогулки';
+    const sameDay = p.day === mskParts(new Date()).day;
+    return { label: `${sameDay ? 'Сегодня' : 'Завтра'} в ${clock(date)} в Москве`, e: k.e, temp: tempText(h.temp), t: k.t, bad, tip };
   }
 
   // Прогноз храним 20 минут, чтобы не спрашивать при каждом открытии
   function loadWeather() {
     const cached = readJson('weather', null);
     if (cached && cached.d && Date.now() - cached.ts < 20 * 60000) {
-      try { weather = parseWeather(cached.d); updateTodayChip(); return; } catch (e) { /* испорченный кэш — спросим заново */ }
+      try { weather = parseWeather(cached.d); updateTodayChip(); return; } catch (e) { /* старый или испорченный кэш — спросим заново */ }
     }
     if (!window.fetch) return;
     const ctl = window.AbortController ? new AbortController() : null;
@@ -2091,6 +2241,7 @@
         try { localStorage.setItem('weather', JSON.stringify({ ts: Date.now(), d })); } catch (e) { /* хранилище недоступно */ }
         updateTodayChip();
         if (openSheetName === 'today') renderToday();
+        else if (openSheetName === 'routes' && gen.open) renderRoutes();
       })
       .catch(() => { /* без погоды всё работает, просто без подсказки */ })
       .finally(() => clearTimeout(timer));
@@ -2101,36 +2252,176 @@
     if (b) b.innerHTML = `<span class="chip-wx">${weather ? `${weather.e} ${weather.temp}` : '✨'}</span>Куда сегодня?`;
   }
 
+  function wxHtml(w) {
+    return w ? `<div class="wx${w.bad ? ' wx--bad' : ''}"><span class="wx-e">${w.e}</span>
+      <span class="wx-text"><b>${w.label} ${w.temp}${w.t ? ', ' + w.t : ''}</b><small>${esc(w.tip)}</small></span></div>` : '';
+  }
+
   const inMkad = (pos) => { const b = cfg.MAP_BOUNDS; return pos.lat > b.south && pos.lat < b.north && pos.lon > b.west && pos.lon < b.east; };
   const mapCenter = () => { const v = state.view.bounds; return { lat: (v.north + v.south) / 2, lon: (v.east + v.west) / 2 }; };
 
-  // ---------- «Куда сегодня?»: три вопроса → места рядом с учётом погоды ----------
-  const TODAY_Q = [
-    { key: 'mood', title: 'Чего хочется?', opts: [
-      { v: 'coffee', e: '☕', label: 'Кофе и поболтать', cats: ['coffee'] },
-      { v: 'food', e: '🍽', label: 'Вкусно поесть', cats: ['food'] },
-      { v: 'walk', e: '🌳', label: 'Погулять', cats: ['photo'] },
-      { v: 'culture', e: '🏛', label: 'Что-то культурное', cats: ['museum'] },
-      { v: 'shop', e: '🛍', label: 'Шопинг', cats: ['mall'] },
-      { v: 'bar', e: '🍸', label: 'Бар или кальян', cats: ['night'], adult: true },
-      { v: 'any', e: '🎲', label: 'Удиви меня', cats: ['coffee', 'food', 'photo', 'museum', 'mall'] },
+  // Откуда начинаем: от тебя (если разрешишь геолокацию и ты внутри МКАД) или от центра карты
+  async function startPoint() {
+    try {
+      const pos = state.user || (await Promise.race([getPosition(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]));
+      if (inMkad(pos)) { state.user = pos; MapView.setUser(pos.lat, pos.lon, userEl()); return { from: pos, me: true }; }
+    } catch (e) { /* без геолокации — от центра карты */ }
+    return { from: mapCenter(), me: false };
+  }
+
+  // ---------- «Куда сегодня?»: несколько быстрых вопросов → лучшие места и готовый план ----------
+  // Всё подбирается только по данным Яндекс Карт: категория и рубрики, кухни, оценка, часы, цены,
+  // «на улице / в помещении», плюс погода на время выхода и наши подборки («На свидание», «Лучшие виды»)
+  const placeText = (p) => norm([p.name, p.note, p.desc, p.fullName].filter(Boolean).join(' '));
+  const cuisineText = (p) => norm((p.cuisine || []).join(' '));
+  const collSet = (id) => (COLLECTIONS.find((c) => c.id === id) || { set: new Set() }).set;
+  const KIDS_RE = /детск|зоопарк|планетари|океанариум|аквариум|аттракцион|экспериментариум|экспериментаниум|дарвин|космонавт|макет|игров|кукол/;
+  const FAST_RE = /быстрое питание|столов|шаурм|бургер|пекарн|фудкорт|раздач/;
+  const kidsPlace = (p) => KIDS_RE.test(placeText(p)) || (p.fun || []).some((f) => KIDS_RE.test(norm(f.join(' '))));
+
+  const Q_MOOD = { key: 'mood', title: 'Чего хочется?', opts: [
+    { v: 'coffee', e: '☕', label: 'Кофе и поболтать', cats: ['coffee'], want: ['coffee', 'photo'] },
+    { v: 'food', e: '🍽', label: 'Вкусно поесть', cats: ['food'], want: ['food', 'photo'] },
+    { v: 'walk', e: '🌳', label: 'Погулять', cats: ['photo'], want: ['photo', 'coffee', 'food'] },
+    { v: 'culture', e: '🏛', label: 'Что-то культурное', cats: ['museum'], want: ['museum', 'coffee', 'photo'] },
+    { v: 'shop', e: '🛍', label: 'Шопинг', cats: ['mall'], want: ['mall', 'coffee', 'food'] },
+    { v: 'bar', e: '🍸', label: 'Бар или кальян', cats: ['night'], want: ['night', 'food', 'photo'], adult: true },
+    { v: 'any', e: '🎲', label: 'Удиви меня', cats: ['coffee', 'food', 'photo', 'museum', 'mall'], want: ['coffee', 'photo', 'museum', 'food'] },
+  ] };
+  // Уточнение — только там, где у Яндекса есть данные: кухни, рубрики кофеен и мест для прогулок
+  const Q_DETAIL = {
+    food: { key: 'detail', title: 'Какую кухню?', opts: [
+      { v: 'georgian', e: '🥟', label: 'Грузинская', chip: 'Грузинская кухня', test: (p) => /грузин|кавказ/.test(cuisineText(p)) },
+      { v: 'italian', e: '🍝', label: 'Итальянская', chip: 'Итальянская кухня', test: (p) => /итальян|пицц/.test(cuisineText(p) + ' ' + placeText(p)) },
+      { v: 'asian', e: '🍣', label: 'Японская и азиатская', chip: 'Азиатская кухня', test: (p) => /япон|паназиат|китай|корей|вьетнам|тай|азиат/.test(cuisineText(p)) },
+      { v: 'russian', e: '🥞', label: 'Русская', chip: 'Русская кухня', test: (p) => /русск|домашн/.test(cuisineText(p)) },
+      { v: 'fast', e: '🥙', label: 'Быстро и недорого', chip: 'Быстро и недорого', test: (p) => p.kind === 'food_court' || FAST_RE.test(placeText(p)) },
+      { v: 'any', e: '🍽', label: 'Неважно' },
     ] },
-    { key: 'time', title: 'Сколько есть времени?', opts: [
-      { v: 'short', e: '⏱', label: 'Около часа', radius: 1500, n: 3 },
-      { v: 'mid', e: '🕑', label: '2–3 часа', radius: 3000, n: 3 },
-      { v: 'long', e: '☀️', label: 'Полдня и больше', radius: 5000, n: 4 },
+    coffee: { key: 'detail', title: 'Какую кофейню?', opts: [
+      // главная рубрика в Яндексе — не «кофе с собой», а кофейня или кафе
+      { v: 'sit', e: '🛋', label: 'Посидеть внутри', chip: 'Можно посидеть', test: (p) => { const d = norm(p.desc || ''); return p.setting !== 'outdoor' && !d.startsWith('кофе с собой') && /кофейня|кафе|чайная/.test(d); } },
+      { v: 'sweet', e: '🍰', label: 'С десертами и выпечкой', chip: 'Десерты и выпечка', test: (p) => /кондитерск|пекарн|десерт|выпечк|эклер|торт/.test(placeText(p)) },
+      { v: 'togo', e: '🥤', label: 'Взять с собой', chip: 'Кофе с собой', test: (p) => /кофе с собой/.test(placeText(p)) },
+      { v: 'any', e: '☕', label: 'Неважно' },
     ] },
-    { key: 'budget', title: 'Бюджет на человека?', opts: [
-      { v: 0, e: '🆓', label: 'Бесплатно' },
-      { v: 1000, e: '💸', label: 'До 1 000 ₽' },
-      { v: 2500, e: '💳', label: 'До 2 500 ₽' },
-      { v: null, e: '💎', label: 'Неважно' },
+    walk: { key: 'detail', title: 'Где погулять?', opts: [
+      { v: 'park', e: '🌳', label: 'Парк или сквер', chip: 'Парк', test: (p) => /парк|сквер|сад|заповедник|усадьб/.test(placeText(p)) },
+      { v: 'view', e: '🌇', label: 'Красивые виды', chip: 'Красивый вид', test: (p) => collSet('views').has(p.id) || /смотров|панорам|вид на/.test(placeText(p)) },
+      { v: 'sights', e: '🏙', label: 'Улицы и достопримечательности', chip: 'Достопримечательность', test: (p) => /достопримечательн|улица|площад|бульвар|набережн|мост|переул/.test(placeText(p)) },
+      { v: 'any', e: '🚶', label: 'Неважно' },
     ] },
-  ];
+  };
+  const Q_WHO = { key: 'who', title: 'С кем идёшь?', opts: [
+    { v: 'solo', e: '🙋', label: 'Только я' },
+    { v: 'date', e: '💕', label: 'Вдвоём, на свидание' },
+    { v: 'friends', e: '👯', label: 'С друзьями' },
+    { v: 'kids', e: '🧸', label: 'С детьми' },
+  ] };
+  const Q_WHEN = { key: 'when', title: 'Когда выходишь?', opts: [
+    { v: 'now', e: '⚡', label: 'Прямо сейчас' },
+    { v: 'hour', e: '⏰', label: 'Через час' },
+    { v: 'evening', e: '🌆', label: 'Вечером' },
+    { v: 'tomorrow', e: '📅', label: 'Завтра днём' },
+  ] };
+  const Q_TIME = { key: 'time', title: 'Сколько есть времени?', opts: [
+    { v: 'short', e: '⏱', label: 'Около часа', radius: 1500 },
+    { v: 'mid', e: '🕑', label: '2–3 часа', radius: 2500 },
+    { v: 'long', e: '☀️', label: 'Полдня', radius: 4000 },
+    { v: 'day', e: '🗓', label: 'Весь день', radius: 6000 },
+  ] };
+  const Q_BUDGET = { key: 'budget', title: 'Бюджет на человека?', opts: [
+    { v: 0, e: '🆓', label: 'Бесплатно' },
+    { v: 1000, e: '💸', label: 'До 1 000 ₽' },
+    { v: 2500, e: '💳', label: 'До 2 500 ₽' },
+    { v: null, e: '💎', label: 'Неважно' },
+  ] };
   const PAID_MOODS = ['coffee', 'food', 'bar']; // тут «бесплатно» не бывает — такой ответ не предлагаем
-  const todayOpt = (key, v) => TODAY_Q.find((q) => q.key === key).opts.find((o) => o.v === v);
-  let today = { step: 0, ans: {}, picks: null, seen: new Set() };
+
+  let today = { step: 0, ans: {}, picks: null, plan: null, seen: new Set() };
   let placeBack = null; // карточку места открыли из «Куда сегодня?» — после неё вернёмся туда
+
+  function todaySteps() {
+    const s = [Q_MOOD];
+    if (Q_DETAIL[today.ans.mood]) s.push(Q_DETAIL[today.ans.mood]);
+    return s.concat([Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET]);
+  }
+  const todayOpt = (q, v) => q.opts.find((o) => o.v === v);
+  const todayAns = (key) => { const q = todaySteps().find((x) => x.key === key); return q && todayOpt(q, today.ans[key]); };
+  // Варианты ответа, которые подходят к уже выбранному
+  function todayOptions(q) {
+    return q.opts.filter((o) => !(q.key === 'budget' && o.v === 0 && PAID_MOODS.includes(today.ans.mood))
+      && !(q.key === 'who' && o.v === 'kids' && today.ans.mood === 'bar'));
+  }
+
+  // Насколько место подходит под «с кем» и погоду — множитель к качеству места
+  function todayPrefer(bad) {
+    const who = today.ans.who, date = collSet('date'), views = collSet('views');
+    return (p) => {
+      let k = 1;
+      if (who === 'date') { if (date.has(p.id) || views.has(p.id)) k *= 1.8; if (p.rating >= 4.8) k *= 1.2; if (FAST_RE.test(placeText(p))) k *= 0.5; }
+      else if (who === 'friends') { if (p.kind === 'food_court' || /бар|паб/.test(placeText(p))) k *= 1.4; }
+      else if (who === 'kids') { if (kidsPlace(p)) k *= 2; if (/бар|кальян|паб/.test(placeText(p))) k *= 0.3; if (p.cat === 'photo' && /парк/.test(placeText(p))) k *= 1.2; }
+      if (bad) k *= isIndoor(p) || p.setting === 'indoor' ? 1.4 : p.setting === 'outdoor' || p.cat === 'photo' ? 0.3 : 1;
+      return k;
+    };
+  }
+
+  // Почему это место: только проверяемые факты (часы, кухня, подборка, «под крышей», бесплатно)
+  function whyChips(p, arrive, bad) {
+    const out = [];
+    const det = todayAns('detail');
+    if (det && det.test && det.test(p)) {
+      const c = today.ans.mood === 'food' && (p.cuisine || []).find((x) => det.test({ cuisine: [x], name: '' }));
+      out.push(c ? `Кухня: ${c}` : det.chip);
+    }
+    const left = Hours.minutesLeft(p.hours, arrive);
+    if (left === Infinity) out.push('Круглосуточно');
+    else if (left) { const c = clock(new Date(arrive.getTime() + left * 60000)); out.push(c === '00:00' ? 'Открыто до полуночи' : `Открыто до ${c}`); }
+    if (today.ans.who === 'kids' && kidsPlace(p)) out.push('Для детей');
+    if (today.ans.who === 'date' && collSet('date').has(p.id)) out.push('Из подборки «На свидание»');
+    else if (collSet('views').has(p.id)) out.push('Из подборки «Лучшие виды»');
+    if (bad && (isIndoor(p) || p.setting === 'indoor')) out.push('Под крышей');
+    if (p.free) out.push('Бесплатно');
+    if (visited.size && !visited.has(p.id)) out.push('Новое для тебя');
+    return out.slice(0, 3);
+  }
+
+  function pickCardHtml(p, i, arrive, bad) {
+    const ph = (window.PLACE_PHOTOS || {})[p.id];
+    const img = ph ? `<img src="${esc(ph.src.replace('img/places/', 'img/thumbs/'))}?v=${encodeURIComponent(window.APP_VERSION || '')}" alt="" loading="lazy" decoding="async">` : icon(p.cat);
+    const why = whyChips(p, arrive, bad).map((t) => `<span>${esc(t)}</span>`).join('');
+    return `<button class="pick${i === 0 ? ' pick--best' : ''}" type="button" data-id="${esc(p.id)}">
+      <span class="pick-img cat--${p.cat}${ph ? ' pick-img--photo' : ''}">${img}</span>
+      <span class="pick-body">
+        ${i === 0 ? '<span class="pick-badge">Лучший вариант</span>' : ''}
+        <b>${esc(p.name)}</b>
+        <small>${p.rating ? `<span class="row-rating">★ ${p.rating.toFixed(1).replace('.', ',')}</span> · ` : ''}${esc(catLabel(p))}${stopPrice(p)}</small>
+        <small>${distanceText(distance(today.from, p))}</small>
+        ${why ? `<span class="why">${why}</span>` : ''}
+      </span></button>`;
+  }
+
+  function planHtml() {
+    const pl = today.plan;
+    if (!pl) return '';
+    const ps = routePlaces(pl.ids);
+    if (ps.length < 2) return '<p class="near-note">Целый план рядом не собрался — смягчи бюджет или выбери другое время.</p>';
+    const r = { startIn: today.startIn, fromMe: today.me ? today.from : null };
+    const st = routeStats(ps, r.fromMe, r), tl = routeTimeline(r, ps);
+    const stops = ps.map((p, i) => `${i ? `<li class="route-leg">${legMin(ps[i - 1], p)} мин пешком</li>` : ''}
+      <li class="route-stop plan-stop" data-id="${esc(p.id)}"><span class="plan-time">${tl[i].arrive}</span>
+        <span class="stop-num cat--${p.cat}">${i + 1}</span>
+        <span class="stop-name"><b>${esc(p.name)}</b><small>${esc(catLabel(p))} · ~${stayText(stayFor(p))}${stopPrice(p)}</small>
+        ${tl[i].warn ? `<small class="stop-closed">${tl[i].warn}</small>` : ''}</span></li>`).join('');
+    return `<div class="section-title">План на ${durText(st.total).replace('~', '≈ ')} <small>${kmText(st.km)} пешком · ${placesWord(ps.length)}</small></div>
+      <div class="route-price plan-price">${routePriceText(st)}</div>
+      <ol class="route-stops plan">${stops}</ol>
+      <div class="place-actions">
+        <button class="btn btn-primary" type="button" data-today="route">Идём по плану</button>
+        <button class="btn btn-secondary" type="button" data-today="replan">${icon('dice')} Другой план</button>
+      </div>`;
+  }
 
   function todayHtml() {
     const head = `<div class="sheet-handle"></div>
@@ -2138,31 +2429,31 @@
         <div class="place-title"><h2>Куда сегодня?</h2></div>
         <div class="head-actions"><button class="icon-btn" type="button" data-today="close" aria-label="Закрыть">${icon('close')}</button></div>
       </div>`;
-    const wx = weather ? `<div class="wx${weather.bad ? ' wx--bad' : ''}"><span class="wx-e">${weather.e}</span>
-        <span class="wx-text"><b>Сейчас в Москве ${weather.temp}${weather.t ? ', ' + weather.t : ''}</b><small>${esc(weather.tip)}</small></span></div>` : '';
-    if (today.step < TODAY_Q.length) {
-      const q = TODAY_Q[today.step];
-      const opts = q.opts.filter((o) => !(q.key === 'budget' && o.v === 0 && PAID_MOODS.includes(today.ans.mood)));
-      return head + wx + `<div class="today-dots">${TODAY_Q.map((_, i) => `<i${i <= today.step ? ' class="on"' : ''}></i>`).join('')}</div>
-        <h3 class="today-q">${q.title} <small>${today.step + 1} из ${TODAY_Q.length}</small></h3>
-        <div class="today-opts">${opts.map((o) => `<button type="button" class="today-opt" data-answer="${q.key}" data-val="${o.v}">
+    const steps = todaySteps();
+    if (today.step < steps.length) {
+      const q = steps[today.step];
+      return head + wxHtml(weatherAt(new Date())) + `<div class="today-dots">${steps.map((_, i) => `<i${i <= today.step ? ' class="on"' : ''}></i>`).join('')}</div>
+        <h3 class="today-q">${q.title} <small>${today.step + 1} из ${steps.length}</small></h3>
+        <div class="today-opts">${todayOptions(q).map((o) => `<button type="button" class="today-opt" data-answer="${q.key}" data-val="${o.v}">
           <span class="today-e">${o.e}</span><b>${o.label}${o.adult ? AGE_BADGE : ''}</b></button>`).join('')}</div>
         ${today.step ? '<div class="draft-links"><button type="button" data-today="back">← Назад</button></div>' : ''}`;
     }
-    if (!today.picks) return head + wx + '<p class="empty">Подбираю места…</p>';
-    const a = today.ans, ps = today.picks;
-    const sum = ['mood', 'time', 'budget'].map((k) => { const o = todayOpt(k, a[k]); return `<span class="tag">${o.e} ${o.label}</span>`; }).join('');
-    const rows = ps.map((p) => rowHtml(p, null, distanceText(distance(today.from, p)) + stopPrice(p))).join('');
-    return head + wx + `<div class="tags today-sum">${sum}</div>
+    const startAt = new Date(Date.now() + today.startIn * 60000);
+    const wx = weatherAt(startAt);
+    if (!today.picks) return head + wxHtml(wx) + '<p class="empty">Подбираю места…</p>';
+    const bad = !!(wx && wx.bad);
+    const sum = steps.map((q) => { const o = todayOpt(q, today.ans[q.key]); return o ? `<span class="tag">${o.e} ${o.label}</span>` : ''; }).join('');
+    const ps = today.picks;
+    const arrive = (p) => new Date(startAt.getTime() + (today.me ? legMin(today.from, p) : 0) * 60000);
+    return head + wxHtml(wx) + `<div class="tags today-sum">${sum}</div>
       ${today.note ? `<p class="near-note">${esc(today.note)}</p>` : ''}
       ${ps.length
-        ? `<div class="section-title">Вот что подойдёт <small>${today.me ? 'рядом с тобой' : 'от центра карты'}</small></div><div class="rows">${rows}</div>`
-        : '<p class="empty">Под такие ответы рядом ничего не нашлось — попробуй другой бюджет или время.</p>'}
-      <div class="place-actions">
-        ${ps.length >= 2 && a.time !== 'short' ? '<button class="btn btn-primary" type="button" data-today="route">Маршрут из них</button>' : ''}
-        ${ps.length ? `<button class="btn btn-secondary" type="button" data-today="more">${icon('dice')} Другие</button>` : ''}
-      </div>
-      <div class="draft-links"><button type="button" data-today="restart">Ответить заново</button></div>`;
+        ? `<div class="section-title">Лучшие варианты <small>${today.me ? 'рядом с тобой' : 'от центра карты'}</small></div>
+           <div class="picks">${ps.map((p, i) => pickCardHtml(p, i, arrive(p), bad)).join('')}</div>
+           <div class="draft-links"><button type="button" data-today="more">Другие варианты</button><button type="button" data-today="restart">Ответить заново</button></div>
+           ${planHtml()}`
+        : `<p class="empty">Под такие ответы рядом ничего не нашлось — попробуй другой бюджет или время.</p>
+           <div class="draft-links"><button type="button" data-today="restart">Ответить заново</button></div>`}`;
   }
 
   function renderToday() { $('#today-sheet').innerHTML = todayHtml(); }
@@ -2174,85 +2465,132 @@
     if (!weather) loadWeather();
   }
 
-  // Подбор: открыто сейчас (и хватит времени побыть), по бюджету, недалеко; в непогоду — под крышей.
-  // Из лучших берём случайные, чтобы «Другие» давали новые варианты
+  // Лучшие варианты: открыто к твоему приходу (и хватит времени побыть), по бюджету, недалеко;
+  // уточнение (кухня, тип кофейни, где гулять) — строго, если таких мест хватает, иначе — мягко.
+  // Из лучших берём случайные, но лучшие — чаще, чтобы «Другие варианты» давали новое
   function pickToday() {
-    const a = today.ans, mood = todayOpt('mood', a.mood), time = todayOpt('time', a.time);
-    const bad = !!(weather && weather.bad);
-    const now = new Date();
+    const a = today.ans, mood = todayAns('mood'), time = todayAns('time'), det = todayAns('detail');
+    const startAt = new Date(Date.now() + today.startIn * 60000);
+    const wx = weatherAt(startAt), bad = !!(wx && wx.bad);
+    const prefer = todayPrefer(bad);
     const fits = (p) => {
-      if (!mood.cats.includes(p.cat) || (p.cat === 'night' && !adultOk)) return false;
+      if (!mood.cats.includes(p.cat) || (p.cat === 'night' && (!adultOk || a.who === 'kids'))) return false;
       if (p.rating && p.rating < 4.4) return false;
       if (a.budget !== null) { const m = minPrice(p); if (m === null || m > a.budget) return false; }
-      if (bad && a.mood === 'any' && isOutdoor(p)) return false; // «Удиви меня» в непогоду — только под крышей
+      if (bad && a.mood === 'any' && (isOutdoor(p) || p.setting === 'both')) return false; // «Удиви меня» в непогоду — только под крышей
       return true;
     };
-    const openFor = (p) => {
-      const left = Hours.minutesLeft(p.hours, now);
+    const arriveAt = (d) => new Date(startAt.getTime() + (today.me ? Math.round((d * 1.3) / WALK_M_PER_MIN) : 0) * 60000);
+    const openFor = (p, d) => {
+      const left = Hours.minutesLeft(p.hours, arriveAt(d));
       if (left === null) return p.cat === 'photo'; // часы неизвестны — годится только для улиц и парков
       return left >= Math.min(60, stayFor(p) * 0.7);
     };
-    const score = (p) => Math.sqrt(p.pop || 1) * (p.rating >= 4.8 ? 1.3 : 1)
-      * (visited.has(p.id) ? 0.4 : 1)                      // где уже был — пореже
-      * (bad && a.mood === 'walk' && isOutdoor(p) ? 0.3 : 1) // в дождь прогулки под крышей — выше
-      / (1 + distance(today.from, p) / 700);
-    let cands = [];
-    for (const r of [time.radius, time.radius * 2, time.radius * 4]) {
-      cands = curated.filter((p) => fits(p) && distance(today.from, p) <= r && openFor(p));
-      if (cands.length >= time.n * 2) break;
+    const base = [];
+    for (const p of curated) {
+      if (!fits(p)) continue;
+      const d = distance(today.from, p);
+      if (d <= time.radius * 4) base.push({ p, d });
     }
+    const strict = det && det.test;
+    const collect = (useDet) => {
+      let c = [];
+      for (const r of [time.radius, time.radius * 2, time.radius * 4]) {
+        c = base.filter((x) => x.d <= r && (!useDet || det.test(x.p)) && openFor(x.p, x.d));
+        if (c.length >= (useDet ? 4 : 6)) break;
+      }
+      return c;
+    };
     today.note = '';
+    let cands = strict ? collect(true) : collect(false);
+    if (strict && cands.length < 3) {
+      const more = collect(false).filter((x) => !cands.includes(x));
+      if (more.length) today.note = cands.length ? `Мест «${det.label.toLowerCase()}» рядом мало — добавил и другие` : `«${det.label}» рядом сейчас не нашлось — вот другие хорошие места`;
+      cands = cands.concat(more);
+    }
     if (!cands.length) {
       // поздно ночью почти всё закрыто — покажем, что откроется в ближайшие часы
-      cands = curated.filter((p) => fits(p) && distance(today.from, p) <= time.radius * 2 && Hours.minutesToOpen(p.hours, now) !== null && Hours.minutesToOpen(p.hours, now) <= 720);
-      if (cands.length) today.note = 'Сейчас почти всё закрыто — вот что откроется в ближайшие часы';
-    } else if (bad && (a.mood === 'walk' || a.mood === 'any')) today.note = 'Погода не для прогулок — сверху места под крышей';
-    let top = cands.sort((x, y) => score(y) - score(x)).slice(0, 14);
-    const fresh = top.filter((p) => !today.seen.has(p.id));
-    if (fresh.length >= time.n) top = fresh;
-    // перемешиваем лучшие; в «Удиви меня» — места разных типов
-    for (let i = top.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [top[i], top[j]] = [top[j], top[i]]; }
-    const picks = [];
-    if (a.mood === 'any') for (const p of top) if (picks.length < time.n && !picks.some((q) => q.cat === p.cat)) picks.push(p);
-    for (const p of top) if (picks.length < time.n && !picks.includes(p)) picks.push(p);
-    // по порядку обхода: каждый раз — ближайшее из оставшихся
-    const ordered = [];
-    let cur = today.from;
-    while (picks.length) {
-      let best = 0;
-      picks.forEach((p, i) => { if (distance(cur, p) < distance(cur, picks[best])) best = i; });
-      cur = picks.splice(best, 1)[0];
-      ordered.push(cur);
+      cands = base.filter((x) => x.d <= time.radius * 2 && (Hours.minutesToOpen(x.p.hours, startAt) || Infinity) <= 720);
+      if (cands.length) today.note = 'В это время почти всё закрыто — вот что откроется в ближайшие часы';
+    } else if (bad && (a.mood === 'walk' || a.mood === 'any')) today.note = 'Погода не для прогулок — выше места под крышей';
+    const score = (x) => placeQuality(x.p, prefer) * (strict && det.test(x.p) ? 1.5 : 1) / (1 + x.d / (time.radius / 2.5));
+    let top = cands.map((x) => ({ p: x.p, s: score(x) })).sort((x, y) => y.s - x.s).slice(0, 14);
+    const fresh = top.filter((x) => !today.seen.has(x.p.id));
+    if (fresh.length >= 3) top = fresh;
+    // 3 места: случайные из лучших, но лучшие — чаще; в «Удиви меня» — разных типов; без двух одинаковых сетей
+    const picks = [], chains = new Set();
+    while (picks.length < 3 && top.length) {
+      const pool = a.mood === 'any' && top.some((x) => !picks.some((q) => q.p.cat === x.p.cat)) ? top.filter((x) => !picks.some((q) => q.p.cat === x.p.cat)) : top;
+      let r = Math.random() * pool.reduce((s, x) => s + x.s, 0);
+      let pick = pool[pool.length - 1];
+      for (const x of pool) { r -= x.s; if (r <= 0) { pick = x; break; } }
+      top = top.filter((x) => x !== pick);
+      if (chains.has(chainKey(pick.p))) continue;
+      chains.add(chainKey(pick.p));
+      picks.push(pick);
     }
-    ordered.forEach((p) => today.seen.add(p.id));
-    today.picks = ordered;
+    picks.sort((x, y) => y.s - x.s);
+    picks.forEach((x) => today.seen.add(x.p.id));
+    today.picks = picks.map((x) => x.p);
+    buildTodayPlan();
+  }
+
+  // План на всё время: начинаем с лучшего варианта, дальше — то, что к нему подходит
+  // (к еде — прогулка, к музею — кофе и прогулка и т. д.), по часам работы и погоде
+  function buildTodayPlan() {
+    const a = today.ans, time = todayAns('time');
+    today.plan = null;
+    if (a.time === 'short' || !today.picks.length) return;
+    const dur = PLAN_DUR.find((d) => d.v === a.time);
+    const anchor = today.picks[0];
+    const startAt = new Date(Date.now() + today.startIn * 60000);
+    const wx = weatherAt(startAt), bad = !!(wx && wx.bad);
+    const want = new Set(todayAns('mood').want.filter((t) => !(t === 'night' && (a.who === 'kids' || !adultOk))));
+    // бесплатно — вместо кафе прогулки и бесплатные музеи
+    if (a.budget === 0) { ['coffee', 'food', 'night'].forEach((t) => want.delete(t)); want.add('photo'); want.add('museum'); }
+    const slots = planSlots(want, dur.n, startAt, bad);
+    // первый шаг — само выбранное место
+    const i = slots.findIndex((s) => slotMatch(anchor, s));
+    if (i >= 0) slots.splice(i, 1); else slots.pop();
+    const lead = (today.me ? legMin(today.from, anchor) : 0) + stayFor(anchor);
+    const r = priceRange(anchor);
+    let best = null;
+    for (let k = 0; k < 5; k++) {
+      const pl = planRoute({
+        from: anchor, me: true, startAt: new Date(startAt.getTime() + lead * 60000), slots, max: dur.max - lead,
+        budget: a.budget, spent: r ? (r[0] + r[1]) / 2 : 0, prefer: todayPrefer(bad), exclude: new Set([anchor.id]), chains: new Set([chainKey(anchor)]),
+        noNight: a.who === 'kids', radius: time.radius,
+      });
+      if (!best || betterPlan(pl, best)) best = pl;
+      if (pl.ids.length === slots.length && !pl.subs) break;
+    }
+    today.plan = { ids: [anchor.id].concat(best.ids) };
   }
 
   async function finishToday() {
     today.picks = null;
+    today.plan = null;
     today.seen = new Set();
+    today.startIn = whenOffset(today.ans.when);
     renderToday();
-    let from = null;
-    try {
-      const pos = state.user || (await Promise.race([getPosition(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]));
-      if (inMkad(pos)) { from = pos; state.user = pos; MapView.setUser(pos.lat, pos.lon, userEl()); }
-    } catch (e) { /* без геолокации — от центра карты */ }
-    today.me = !!from;
-    today.from = from || mapCenter();
+    const sp = await startPoint();
+    today.from = sp.from;
+    today.me = sp.me;
     pickToday();
     if (openSheetName === 'today') renderToday();
   }
 
   function answerToday(key, raw) {
-    const q = TODAY_Q[today.step];
+    const q = todaySteps()[today.step];
     if (!q || q.key !== key) return;
     const o = q.opts.find((x) => String(x.v) === raw);
     if (!o) return;
     const go = () => {
+      if (key === 'mood' && today.ans.mood !== o.v) delete today.ans.detail; // другое настроение — другое уточнение
       today.ans[key] = o.v;
       today.step++;
       haptic.tap();
-      if (today.step >= TODAY_Q.length) finishToday();
+      if (today.step >= todaySteps().length) finishToday();
       else renderToday();
       $('#today-sheet').scrollTop = 0;
     };
@@ -2261,10 +2599,13 @@
   }
 
   function todayRoute() {
-    const ps = today.picks || [];
-    if (ps.length < 2) return;
-    const mood = todayOpt('mood', today.ans.mood);
-    showRoute({ id: 'today', title: `Куда сегодня: ${mood.label.toLowerCase()}`, emoji: mood.e, ids: ps.map((p) => p.id), shared: true, fromMe: today.me ? today.from : null });
+    const pl = today.plan;
+    if (!pl || pl.ids.length < 2) return;
+    const ps = routePlaces(pl.ids);
+    const names = { coffee: 'кофе', photo: 'прогулка', food: 'еда', museum: 'музей', night: 'бар', mall: 'ТЦ' };
+    const title = ps.map((p) => names[p.cat]).join(' → ');
+    showRoute({ id: 'today', title: title[0].toUpperCase() + title.slice(1), emoji: todayAns('mood').e, ids: pl.ids, gen: true, regen: 'today',
+      fromMe: today.me ? today.from : null, startIn: today.startIn });
   }
 
   function onTodayClick(e) {
@@ -2275,8 +2616,9 @@
       const x = act.dataset.today;
       if (x === 'close') closeSheets();
       else if (x === 'back') { today.step = Math.max(0, today.step - 1); haptic.tap(); renderToday(); }
-      else if (x === 'restart') { today = { step: 0, ans: {}, picks: null, seen: new Set() }; haptic.tap(); renderToday(); }
+      else if (x === 'restart') { today = { step: 0, ans: {}, picks: null, plan: null, seen: new Set() }; haptic.tap(); renderToday(); }
       else if (x === 'more') { haptic.impact(); pickToday(); renderToday(); }
+      else if (x === 'replan') { haptic.impact(); buildTodayPlan(); renderToday(); }
       else if (x === 'route') { haptic.impact(); todayRoute(); }
       return;
     }
@@ -2460,7 +2802,7 @@
   // за краем экрана — потом шрифт уже найден
   function warmEmoji() {
     const set = new Set();
-    TODAY_Q.forEach((q) => q.opts.forEach((o) => set.add(o.e)));
+    [Q_MOOD, Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET].concat(Object.values(Q_DETAIL)).forEach((q) => q.opts.forEach((o) => set.add(o.e)));
     AWARDS.forEach((a) => set.add(a.e));
     READY_ROUTES.concat(COLLECTIONS).forEach((r) => r.emoji && set.add(r.emoji));
     '☀️ 🌙 🌤 ⛅ ☁️ 🌫 🌦 🌧 🌨 ⛈ 🌡 ✨ 🗺 🚶 🏅 📍 🤝 🎉 🏆 ✓ ＋'.split(' ').forEach((e) => set.add(e));
@@ -2472,6 +2814,13 @@
     document.body.appendChild(d);
     void d.offsetWidth;
     setTimeout(() => d.remove(), 1000);
+    // и шторку маршрута один раз верстаем заранее (она скрыта): первый показ маршрута — без заминки
+    const r = READY_ROUTES.find((x) => routePlaces(x.ids).length > 1 && !x.adult);
+    if (r && !activeRoute) {
+      activeRoute = Object.assign({}, r);
+      try { renderRouteSheet(); void $('#route-sheet').offsetHeight; } catch (e) { /* не страшно */ }
+      activeRoute = null;
+    }
   }
 
   // ---------- Заставка ----------
@@ -2547,17 +2896,22 @@
       const t = e.target;
       // «Собери маршрут за меня» и фильтры
       const gOpen = t.closest('[data-gen-open]'), gSet = t.closest('[data-gen]'), gTog = t.closest('[data-gen-toggle]');
-      const gGo = t.closest('[data-gen-go]');
-      if (gOpen) { gen.open = !gen.open; haptic.tap(); renderRoutes(); return; }
+      const gGo = t.closest('[data-gen-go]'), gWant = t.closest('[data-gen-want]');
+      if (gOpen) { gen.open = !gen.open; haptic.tap(); renderRoutes(); if (gen.open && !weather) loadWeather(); return; }
       if (gSet) {
         const v = gSet.dataset.val;
         gen[gSet.dataset.gen] = gSet.dataset.gen === 'budget' ? (v === 'null' ? null : +v) : v;
-        haptic.tap(); renderRoutes(); return;
+        saveGen(); haptic.tap(); renderRoutes(); return;
       }
-      if (gTog) {
-        const k = gTog.dataset.genToggle;
-        const flip = () => { gen[k] = !gen[k]; if (k === 'rain' && gen.rain) gen.museum = false; if (k === 'museum' && gen.museum) gen.rain = false; haptic.tap(); renderRoutes(); };
-        if (k === 'bar' && !gen.bar && !adultOk) askAdult().then((ok) => { openSheet('routes'); if (ok) flip(); });
+      if (gTog) { const k = gTog.dataset.genToggle; gen[k] = !gen[k]; saveGen(); haptic.tap(); renderRoutes(); return; }
+      if (gWant) {
+        const w = gWant.dataset.genWant;
+        const flip = () => {
+          if (gen.want.has(w)) { if (gen.want.size === 1) { toast('Оставь хотя бы что-то одно'); return; } gen.want.delete(w); }
+          else gen.want.add(w);
+          saveGen(); haptic.tap(); renderRoutes();
+        };
+        if (w === 'night' && !gen.want.has(w) && !adultOk) askAdult().then((ok) => { openSheet('routes'); if (ok) flip(); });
         else flip();
         return;
       }
@@ -2623,7 +2977,7 @@
         else if (x === 'share') shareRoute(r);
         else if (x === 'go') { haptic.impact(); openLink(routeGoUrl(routePlaces(r.ids), r.fromMe)); }
         else if (x === 'like') { toggleRouteLike(r.id); renderRouteSheet(); }
-        else if (x === 'regen') generateRoute();
+        else if (x === 'regen') { if (r.regen === 'today' && today.picks) { buildTodayPlan(); todayRoute(); } else generateRoute(); }
         else if (x === 'from-me') {
           if (r.fromMe) { r.fromMe = null; drawRouteLine(); renderRouteSheet(); return; }
           a.textContent = 'Ищу, где ты…';

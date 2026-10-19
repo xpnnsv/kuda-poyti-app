@@ -74,19 +74,27 @@
   // Текущее московское время пересчитываем не чаще раза в 20 секунд: при тысячах мест на карте
   // это заметно ускоряет фильтр «Открыто сейчас»
   let nowCache = null, nowCacheAt = 0;
+  // Подбор маршрута спрашивает время прихода в тысячи мест — одну и ту же минуту считаем один раз
+  const minuteCache = new Map();
   function moscowNow(date) {
     if (!date) {
       const t = Date.now();
       if (!nowCache || t - nowCacheAt > 20000) { nowCache = moscowNow(new Date(t)); nowCacheAt = t; }
       return nowCache;
     }
+    const key = Math.floor(date.getTime() / 60000);
+    const hit = minuteCache.get(key);
+    if (hit) return hit;
     formatter = formatter || new Intl.DateTimeFormat('en-US', {
       timeZone: 'Europe/Moscow', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
     });
     const parts = {};
     for (const p of formatter.formatToParts(date)) parts[p.type] = p.value;
     const day = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(parts.weekday);
-    return { day, minutes: (+parts.hour % 24) * 60 + +parts.minute };
+    const res = { day, minutes: (+parts.hour % 24) * 60 + +parts.minute };
+    if (minuteCache.size > 3000) minuteCache.clear();
+    minuteCache.set(key, res);
+    return res;
   }
 
   const fmt = (min) => {

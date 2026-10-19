@@ -1213,3 +1213,46 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .onboard-dots i { width: 8px; height: 8px; border-radius: 4px; background: var(--line); transition: width 0.25s, background 0.25s; }
 .onboard-dots i.on { width: 22px; background: var(--accent); }
 .onboard-next { width: calc(100% - 40px); max-width: 480px; margin: 0 auto; }
+
+/* «Куда сегодня?»: карточки лучших вариантов и план */
+.picks { display: flex; flex-direction: column; gap: 8px; }
+.pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+.pick:active { background: var(--surface-2); }
+.pick--best { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface)); }
+.pick-img {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--c) 14%, var(--surface));
+  color: var(--c);
+}
+.pick-img .ic { width: 26px; height: 26px; }
+.pick-img img { width: 100%; height: 100%; object-fit: cover; }
+.pick-body { flex: 1; min-width: 0; }
+.pick-badge { display: inline-block; margin-bottom: 2px; color: var(--accent-ink); font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em; }
+.pick-body b { display: block; overflow: hidden; font-size: 15.5px; font-weight: 800; line-height: 1.25; white-space: nowrap; text-overflow: ellipsis; }
+.pick-body small { display: block; overflow: hidden; color: var(--hint); font-size: 12.5px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.why { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.why span { padding: 2px 7px; border-radius: 7px; background: var(--surface-2); color: var(--text); font-size: 11.5px; font-weight: 700; }
+.pick--best .why span { background: var(--surface); }
+.picks + .draft-links { margin-bottom: 18px; }
+.plan-price { margin: -6px 0 2px; }
+.plan .route-stop { cursor: pointer; }
+.plan-time { flex: none; width: 40px; color: var(--hint); font-size: 12.5px; font-weight: 800; }
+.plan .route-leg { margin-left: 63px; }
+.gen-wx { margin: 12px 0 0; color: var(--text); font-size: 13px; font-weight: 700; }
