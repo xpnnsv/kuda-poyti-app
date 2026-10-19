@@ -1089,6 +1089,7 @@
   ];
   let nearTab = 'coffee';
   let nearFrom = null; // { lat, lon, me: true/false }
+  let nearOutside = false; // геолокация есть, но ты за МКАД
 
   function renderNear() {
     document.querySelectorAll('#near-tabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.v === nearTab));
@@ -1098,7 +1099,7 @@
       .map((p) => ({ p, d: distance(nearFrom, p) }))
       .sort((a, b) => a.d - b.d)
       .slice(0, 20);
-    $('#near-note').textContent = nearFrom.me ? '' : 'Не получилось узнать, где ты, — показываю места рядом с центром карты';
+    $('#near-note').textContent = nearFrom.me ? '' : nearOutside ? 'Похоже, ты за МКАД — показываю места рядом с центром карты' : 'Не получилось узнать, где ты, — показываю места рядом с центром карты';
     $('#near-list').innerHTML = list.length
       ? list.map(({ p, d }) => rowHtml(p, null, distanceText(d))).join('')
       : '<p class="empty">Под твои фильтры рядом ничего нет — попробуй их смягчить.</p>';
@@ -1109,15 +1110,17 @@
     $('#near-list').innerHTML = '<p class="empty">Ищу, где ты…</p>';
     $('#near-note').textContent = '';
     nearFrom = null;
+    nearOutside = false;
     renderNear();
     openSheet('near');
     try {
-      const pos = state.user || (await getPosition());
+      const pos = state.user || (await Promise.race([getPosition(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]));
       state.user = pos;
       MapView.setUser(pos.lat, pos.lon, userEl());
       const b = cfg.MAP_BOUNDS;
       const inMoscow = pos.lat > b.south && pos.lat < b.north && pos.lon > b.west && pos.lon < b.east;
       nearFrom = inMoscow ? { lat: pos.lat, lon: pos.lon, me: true } : null;
+      nearOutside = !inMoscow;
       // Показываем тебя на карте — над шторкой, между верхней панелью и её краем
       if (inMoscow && openSheetName === 'near') {
         const zoom = Math.max(state.view ? state.view.zoom : 0, 15);
@@ -1785,7 +1788,7 @@
   // random — «Ещё вариант»: из лучших мест, но не обязательно самых лучших; иначе — лучшее по сумме оценок
   async function generateRoute(random) {
     haptic.impact();
-    const { from, me } = await startPoint();
+    const { from, me, outside } = await startPoint();
     const startIn = whenOffset(gen.when);
     const startAt = new Date(Date.now() + startIn * 60000);
     const wx = weatherAt(startAt);
@@ -1811,6 +1814,7 @@
     const miss = [...new Set(best.skipped)].filter((c) => !got.has(c) && why[c]);
     if (miss.length) toast(`${miss.map((c) => why[c]).join(' и ')} рядом в это время закрыты или не по бюджету — собрал без них`);
     else if (bad && !gen.indoor && gen.want.has('photo')) toast(`${wx.e} ${wx.tip.split(' — ')[0]} — вместо прогулок места под крышей`);
+    else if (outside) toast('Похоже, ты за МКАД — маршрут собран от центра карты');
   }
 
   // Перерисовать только форму, а не весь список маршрутов (там два десятка карточек с фото)
@@ -2286,6 +2290,7 @@
     try {
       const pos = state.user || (await Promise.race([getPosition(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]));
       if (inMkad(pos)) { state.user = pos; MapView.setUser(pos.lat, pos.lon, userEl()); return { from: pos, me: true }; }
+      return { from: mapCenter(), me: false, outside: true }; // ты за МКАД — места только внутри, считаем от центра карты
     } catch (e) { /* без геолокации — от центра карты */ }
     return { from: mapCenter(), me: false };
   }
@@ -2376,6 +2381,10 @@
 
   let today = { step: 0, ans: {}, picks: null, plan: null, seen: new Set() };
   let placeBack = null; // карточку места открыли из «Куда сегодня?» — после неё вернёмся туда
+  // Защита от случайного двойного касания: после ответа следующий вопрос появляется прямо под пальцем,
+  // и второе касание выбрало бы ответ за человека. Касание раньше чем через 0,4 с после ответа не считаем
+  let lastAnswerAt = 0;
+  const tooFast = () => { const t = Date.now(); if (t - lastAnswerAt < 400) return true; lastAnswerAt = t; return false; };
 
   function todaySteps() {
     const s = [Q_MOOD];
@@ -2649,7 +2658,7 @@
     if (w === 'near' || w === 'close') {
       const sp = await startPoint();
       user = sp.me ? sp.from : null;
-      if (!user) today.locNote = 'Не получилось узнать, где ты, — ищу от центра карты';
+      if (!user) today.locNote = sp.outside ? 'Похоже, ты за МКАД — ищу от центра карты' : 'Не получилось узнать, где ты, — ищу от центра карты';
     }
     today.user = user;
     today.me = (w === 'near' || w === 'close') && !!user;
@@ -2689,7 +2698,7 @@
 
   function onTodayClick(e) {
     const ans = e.target.closest('[data-answer]');
-    if (ans) { answerToday(ans.dataset.answer, ans.dataset.val); return; }
+    if (ans) { if (!tooFast()) answerToday(ans.dataset.answer, ans.dataset.val); return; }
     const act = e.target.closest('[data-today]');
     if (act) {
       const x = act.dataset.today;
@@ -3081,6 +3090,7 @@
     if (a) {
       const q = PROFILE_Q.find((x) => x.key === a.dataset.profAns);
       const o = q.opts.find((x) => String(x.v) === a.dataset.val);
+      if (!q.multi && tooFast()) return; // двойное касание не отвечает на следующий вопрос
       const apply = () => {
         haptic.tap();
         if (q.multi) {
@@ -3098,7 +3108,7 @@
     const act = e.target.closest('[data-prof]');
     if (!act) return;
     const x = act.dataset.prof;
-    if (x === 'next') { haptic.tap(); profileNext(); }
+    if (x === 'next') { if (tooFast()) return; haptic.tap(); profileNext(); }
     else if (x === 'back') { prof.step = Math.max(0, prof.step - 1); haptic.tap(); renderProfile(); }
     else if (x === 'skip') {
       if (!profile) try { localStorage.setItem('profile_skip', '1'); } catch (err) { /* хранилище недоступно */ }
@@ -3156,7 +3166,7 @@
     ob.classList.add('show');
     ob.addEventListener('click', (e) => {
       const b = e.target.closest('[data-ob]');
-      if (!b) return;
+      if (!b || tooFast()) return; // двойное касание «Далее» не перелистывает два экрана сразу
       haptic.tap();
       if (b.dataset.ob === 'skip' || obIndex === ONBOARD.length - 1) closeOnboard();
       else showOnboardSlide(obIndex + 1);
@@ -3264,6 +3274,10 @@
     applyTheme();
     document.querySelectorAll('[data-app-name]').forEach((el) => (el.textContent = cfg.APP_NAME));
     document.title = cfg.APP_NAME;
+    // Согласие с документами спрашиваем сразу (поверх заставки): человек читает их, пока грузится карта
+    let legalOk = null;
+    const legalReady = new Promise((res) => { legalOk = res; });
+    ensureLegal(() => legalOk());
 
     buildChips();
     buildFilters();
@@ -3537,7 +3551,7 @@
     // Сначала — согласие с документами (для всех, и по ссылкам от друзей тоже); потом знакомство и анкета —
     // только для тех, кто открыл приложение сам
     const deepLink = !!sp || /[?&](lucky|routes)=1/.test(location.search);
-    ensureLegal(() => { if (!deepLink) maybeOnboard(); });
+    legalReady.then(() => { if (!deepLink) maybeOnboard(); });
     loadWeather();
   }
 
