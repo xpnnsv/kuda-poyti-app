@@ -19,7 +19,7 @@
   // Сколько названий показывать в списках «Где поесть» / «Развлечения»
   const LIST_LIMIT = 12;
   // Ползунок бюджета: шаги неравномерные — как люди думают о деньгах; последний шаг — «любой»
-  const BUDGET_STOPS = [0, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, null];
+  const BUDGET_STOPS = [0, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 7000, 10000, null];
   const budgetLabel = (v) => (v === null ? 'Любой' : v === 0 ? 'Только бесплатное' : `до ${v.toLocaleString('ru-RU')} ₽`);
   const SETTINGS = [
     { v: 'any', label: 'Неважно' },
@@ -302,7 +302,8 @@
     tg.expand();
     if (supports('7.7')) tg.disableVerticalSwipes(); // чтобы свайп по карте не сворачивал приложение
     tg.onEvent('themeChanged', applyTheme);
-    if (supports('6.1')) tg.BackButton.onClick(() => closeSheets());
+    // «Назад» в Telegram: сначала закрывает открытый документ, потом шторки
+    if (supports('6.1')) tg.BackButton.onClick(() => { if (!$('#doc-view').hidden) $('#doc-view').hidden = true; else closeSheets(); });
   }
 
   // ---------- Фильтрация ----------
@@ -901,7 +902,13 @@
       toast('Под такие фильтры ничего нет — попробуй их смягчить');
       return;
     }
-    const pick = pool[Math.floor(Math.random() * pool.length)];
+    // случайно, но с учётом профиля: что тебе ближе по ответам, выпадает чаще
+    let pick = pool[Math.floor(Math.random() * pool.length)];
+    if (profile) {
+      const w = pool.map((p) => profileK(p));
+      let r = Math.random() * w.reduce((s, x) => s + x, 0);
+      for (let i = 0; i < pool.length; i++) { r -= w[i]; if (r <= 0) { pick = pool[i]; break; } }
+    }
     state.recent.push(pick.id);
     if (state.recent.length > 15) state.recent.shift();
 
@@ -1650,8 +1657,10 @@
   }
 
   // Насколько место хорошее само по себе: оценки в Яндексе, их число; где уже был — реже
+  // Оценка места: число и средняя оценка в Яндексе, профиль человека (интересы, кухни, что утомляет);
+  // где уже был — ниже. prefer — поправки конкретного подбора (с кем, погода)
   function placeQuality(p, prefer) {
-    let q = Math.sqrt(p.pop || 30) * (p.rating >= 4.8 ? 1.3 : p.rating >= 4.6 ? 1.1 : 1);
+    let q = Math.sqrt(p.pop || 30) * (p.rating >= 4.8 ? 1.3 : p.rating >= 4.6 ? 1.1 : 1) * profileK(p);
     if (visited.has(p.id)) q *= 0.5;
     return prefer ? q * prefer(p) : q;
   }
@@ -1703,7 +1712,10 @@
         return left === null ? p.cat === 'photo' : left >= stayFor(p) * 0.7; // успеть побыть хотя бы 70% времени
       });
       if (ok.length >= 3 || (ok.length && radius === 3200)) {
-        const top = ok.map((x) => ({ p: x.p, s: placeQuality(x.p, o.prefer) / (1 + x.d / 450) })).sort((a, b) => b.s - a.s).slice(0, 5);
+        // близость к предыдущему месту важнее, если человека утомляет долгая дорога
+        const nearScale = tiredOf('travel') ? 320 : 450;
+        const top = ok.map((x) => ({ p: x.p, s: placeQuality(x.p, o.prefer) / (1 + x.d / nearScale) })).sort((a, b) => b.s - a.s).slice(0, 5);
+        if (!o.random) return top[0].p; // по умолчанию — лучшее по сумме оценок, без случайностей
         let r = Math.random() * top.reduce((s, x) => s + x.s, 0);
         for (const x of top) { r -= x.s; if (r <= 0) return x.p; }
         return top[0].p;
@@ -1752,6 +1764,8 @@
     { v: 0, label: 'Бесплатно' },
     { v: 1000, label: 'до 1 000 ₽' },
     { v: 2500, label: 'до 2 500 ₽' },
+    { v: 5000, label: 'до 5 000 ₽' },
+    { v: 10000, label: 'до 10 000 ₽' },
     { v: null, label: 'Любой' },
   ];
   const gen = { dur: 'mid', when: 'now', budget: 2500, want: new Set(['coffee', 'photo', 'food']), indoor: false, newOnly: false, open: false };
@@ -1768,7 +1782,8 @@
     try { localStorage.setItem('gen', JSON.stringify({ dur: gen.dur, budget: gen.budget, want: [...gen.want], indoor: gen.indoor, newOnly: gen.newOnly })); } catch (e) { /* хранилище недоступно */ }
   }
 
-  async function generateRoute() {
+  // random — «Ещё вариант»: из лучших мест, но не обязательно самых лучших; иначе — лучшее по сумме оценок
+  async function generateRoute(random) {
     haptic.impact();
     const { from, me } = await startPoint();
     const startIn = whenOffset(gen.when);
@@ -1780,10 +1795,10 @@
     // бесплатно — только прогулки и бесплатные музеи
     if (gen.budget === 0) { want.delete('coffee'); want.delete('food'); want.delete('night'); want.add('photo'); }
     const slots = planSlots(want, dur.n, startAt, bad);
-    // несколько попыток — берём ту, где больше мест
+    // первая попытка — лучшее по оценкам; если в ней пришлось что-то заменить, пробуем ещё и берём ту, где больше мест и меньше замен
     let best = null;
     for (let i = 0; i < 6; i++) {
-      const pl = planRoute({ from, me, startAt, slots, max: dur.max + (want.has('night') ? 60 : 0), budget: gen.budget, newOnly: gen.newOnly,
+      const pl = planRoute({ from, me, startAt, slots, max: dur.max + (want.has('night') ? 60 : 0), budget: gen.budget, newOnly: gen.newOnly, random: random || i > 0,
         prefer: bad ? (p) => (isIndoor(p) || p.setting === 'indoor' ? 1.3 : 1) : null });
       if (!best || betterPlan(pl, best)) best = pl;
       if (pl.ids.length === slots.length && !pl.subs) break;
@@ -1830,7 +1845,7 @@
   }
 
   // ---------- Фильтры маршрутов (шторка как у карты) ----------
-  const RF_BUDGET = [0, 500, 1000, 1500, 2000, 3000, 5000, null];
+  const RF_BUDGET = [0, 500, 1000, 1500, 2000, 3000, 5000, 7000, 10000, null];
   const RF_TIME = [120, 180, 240, 300, null]; // минут
   const RF_SETTING = [
     { v: 'any', label: 'Неважно' },
@@ -2278,7 +2293,10 @@
   // ---------- «Куда сегодня?»: несколько быстрых вопросов → лучшие места и готовый план ----------
   // Всё подбирается только по данным Яндекс Карт: категория и рубрики, кухни, оценка, часы, цены,
   // «на улице / в помещении», плюс погода на время выхода и наши подборки («На свидание», «Лучшие виды»)
-  const placeText = (p) => norm([p.name, p.note, p.desc, p.fullName].filter(Boolean).join(' '));
+  // Текст места для правил (название, рубрики, описание) — считаем один раз на место
+  const placeTexts = new Map();
+  const placeTextRaw = (p) => norm([p.name, p.note, p.desc, p.fullName].filter(Boolean).join(' '));
+  const placeText = (p) => (p.id ? placeTexts.get(p.id) || placeTexts.set(p.id, placeTextRaw(p)).get(p.id) : placeTextRaw(p));
   const cuisineText = (p) => norm((p.cuisine || []).join(' '));
   const collSet = (id) => (COLLECTIONS.find((c) => c.id === id) || { set: new Set() }).set;
   const KIDS_RE = /детск|зоопарк|планетари|океанариум|аквариум|аттракцион|экспериментариум|экспериментаниум|дарвин|космонавт|макет|игров|кукол/;
@@ -2350,7 +2368,9 @@
     { v: 0, e: '🆓', label: 'Бесплатно' },
     { v: 1000, e: '💸', label: 'До 1 000 ₽' },
     { v: 2500, e: '💳', label: 'До 2 500 ₽' },
-    { v: null, e: '💎', label: 'Неважно' },
+    { v: 5000, e: '💰', label: 'До 5 000 ₽' },
+    { v: 10000, e: '💎', label: 'До 10 000 ₽' },
+    { v: null, e: '♾️', label: 'Неважно' },
   ] };
   const PAID_MOODS = ['coffee', 'food', 'bar']; // тут «бесплатно» не бывает — такой ответ не предлагаем
 
@@ -2370,6 +2390,8 @@
   }
   const todayOpt = (q, v) => q.opts.find((o) => o.v === v);
   const todayAns = (key) => { const q = todaySteps().find((x) => x.key === key); return q && todayOpt(q, today.ans[key]); };
+  // Этот ответ совпадает с профилем («С кем обычно ходишь», «Сколько тратишь») — подсказываем
+  const fromProfile = (q, o) => !!profile && (q.key === 'who' || q.key === 'budget') && profile[q.key] !== undefined && profile[q.key] === o.v;
   // Варианты ответа, которые подходят к уже выбранному
   function todayOptions(q) {
     return q.opts.filter((o) => !(q.key === 'budget' && o.v === 0 && PAID_MOODS.includes(today.ans.mood))
@@ -2396,6 +2418,9 @@
     if (det && det.test && det.test(p)) {
       const c = today.ans.mood === 'food' && (p.cuisine || []).find((x) => det.test({ cuisine: [x], name: '' }));
       out.push(c ? `Кухня: ${c}` : det.chip);
+    } else {
+      const fc = favCuisine(p); // любимая кухня из профиля
+      if (fc) out.push(`Твоя кухня: ${(p.cuisine || []).find((x) => CUISINE_RE[fc].test(norm(x))) || 'из профиля'}`);
     }
     const left = Hours.minutesLeft(p.hours, arrive);
     if (left === Infinity) out.push('Круглосуточно');
@@ -2457,7 +2482,7 @@
       return head + wxHtml(weatherAt(new Date())) + `<div class="today-dots">${steps.map((_, i) => `<i${i <= today.step ? ' class="on"' : ''}></i>`).join('')}</div>
         <h3 class="today-q">${q.title} <small>${today.step + 1} из ${steps.length}</small></h3>
         <div class="today-opts">${todayOptions(q).map((o) => `<button type="button" class="today-opt" data-answer="${q.key}" data-val="${o.v}">
-          <span class="today-e">${o.e}</span><b>${o.label}${o.adult ? AGE_BADGE : ''}</b>${o.hint ? `<small>${o.hint}</small>` : ''}</button>`).join('')}</div>
+          <span class="today-e">${o.e}</span><b>${o.label}${o.adult ? AGE_BADGE : ''}</b>${o.hint || fromProfile(q, o) ? `<small>${o.hint || 'как в твоём профиле'}</small>` : ''}</button>`).join('')}</div>
         ${today.step ? '<div class="draft-links"><button type="button" data-today="back">← Назад</button></div>' : ''}`;
     }
     const startAt = new Date(Date.now() + today.startIn * 60000);
@@ -2475,6 +2500,7 @@
       ${notes}
       ${ps.length
         ? `<div class="section-title">Лучшие варианты <small>${area}</small></div>
+           <p class="today-basis">Каждое место оценено по ${profile ? 'твоему профилю, ' : ''}ответам, оценкам в Яндекс Картах, часам работы к твоему приходу, бюджету, расстоянию и погоде. Первое — с лучшей суммой.${profile ? '' : ' <button type="button" class="link-btn" data-today="profile">Настроить рекомендации</button>'}</p>
            <div class="picks">${ps.map((p, i) => pickCardHtml(p, i, arrive(p), bad)).join('')}</div>
            <div class="draft-links"><button type="button" data-today="more">Другие варианты</button><button type="button" data-today="restart">Ответить заново</button></div>
            ${planHtml()}`
@@ -2527,7 +2553,12 @@
     const collect = (useDet) => {
       let c = [];
       for (let k = 0; k < stages.length; k++) {
-        c = base.filter((x) => stages[k](x) && (!useDet || det.test(x.p)) && openFor(x.p));
+        c = base.filter((x) => stages[k](x) && (!useDet || det.test(x.p)));
+        // по всей Москве мест тысячи: сначала берём 500 лучших по простой оценке (оценки в Яндексе и
+        // расстояние), и уже их проверяем по часам и считаем полностью — так подбор не подтормаживает
+        // (если утомляют толпы — без учёта числа оценок, чтобы не потерять малоизвестные места)
+        if (c.length > 500) c = c.map((x) => ({ x, s: (tiredOf('crowds') ? 1 : Math.sqrt(x.p.pop || 30)) * (x.p.rating >= 4.8 ? 1.3 : 1) / (1 + x.d / where.scale) })).sort((u, v) => v.s - u.s).slice(0, 500).map((y) => y.x);
+        c = c.filter((x) => openFor(x.p));
         if (c.length >= (useDet ? 3 : 4)) { if (k) wider = true; break; }
         if (k === stages.length - 1 && c.length && k) wider = true;
       }
@@ -2547,22 +2578,18 @@
       if (cands.length) today.note = 'В это время почти всё закрыто — вот что откроется в ближайшие часы';
     } else if (wider && !today.note) today.note = where.v === 'map' ? 'На видимой части карты мест мало — добавил вокруг' : where.v === 'center' ? 'В центре подходящего мало — добавил рядом с ним' : 'Совсем рядом подходящего мало — добавил чуть дальше';
     else if (bad && (a.mood === 'walk' || a.mood === 'any')) today.note = 'Погода не для прогулок — выше места под крышей';
-    const score = (x) => placeQuality(x.p, prefer) * (strict && det.test(x.p) ? 1.5 : 1) / (1 + x.d / where.scale);
+    const scale = tiredOf('travel') ? where.scale * 0.6 : where.scale; // утомляет дорога — ближнее важнее
+    const score = (x) => placeQuality(x.p, prefer) * (strict && det.test(x.p) ? 1.5 : 1) / (1 + x.d / scale);
     let top = cands.map((x) => ({ p: x.p, s: score(x) })).sort((x, y) => y.s - x.s).slice(0, 14);
     const fresh = top.filter((x) => !today.seen.has(x.p.id));
     if (fresh.length >= 3) top = fresh;
-    // 3 места: случайные из лучших, но лучшие — чаще; в «Удиви меня» — разных типов; без двух одинаковых сетей
+    // 3 места строго по оценке: лучшие по сумме правил; без двух точек одной сети;
+    // в «Удиви меня» сначала лучшее каждого типа, чтобы варианты были разными.
+    // «Другие варианты» исключают уже показанные — получаются следующие по оценке
     const picks = [], chains = new Set();
-    while (picks.length < 3 && top.length) {
-      const pool = a.mood === 'any' && top.some((x) => !picks.some((q) => q.p.cat === x.p.cat)) ? top.filter((x) => !picks.some((q) => q.p.cat === x.p.cat)) : top;
-      let r = Math.random() * pool.reduce((s, x) => s + x.s, 0);
-      let pick = pool[pool.length - 1];
-      for (const x of pool) { r -= x.s; if (r <= 0) { pick = x; break; } }
-      top = top.filter((x) => x !== pick);
-      if (chains.has(chainKey(pick.p))) continue;
-      chains.add(chainKey(pick.p));
-      picks.push(pick);
-    }
+    const take = (x) => { chains.add(chainKey(x.p)); picks.push(x); };
+    if (a.mood === 'any') for (const x of top) if (picks.length < 3 && !chains.has(chainKey(x.p)) && !picks.some((q) => q.p.cat === x.p.cat)) take(x);
+    for (const x of top) if (picks.length < 3 && !picks.includes(x) && !chains.has(chainKey(x.p))) take(x);
     picks.sort((x, y) => y.s - x.s);
     // уточнённых мест не хватило (например, два филиала одной сети) — добираем лучшими из остальных
     if (picks.length < 3 && strict) {
@@ -2579,7 +2606,7 @@
 
   // План на всё время: начинаем с лучшего варианта, дальше — то, что к нему подходит
   // (к еде — прогулка, к музею — кофе и прогулка и т. д.), по часам работы и погоде
-  function buildTodayPlan() {
+  function buildTodayPlan(random) {
     const a = today.ans;
     today.plan = null;
     if (a.time === 'short' || !today.picks.length) return;
@@ -2599,7 +2626,7 @@
     let best = null;
     for (let k = 0; k < 5; k++) {
       const pl = planRoute({
-        from: anchor, me: true, startAt: new Date(startAt.getTime() + lead * 60000), slots, max: dur.max - lead,
+        from: anchor, me: true, startAt: new Date(startAt.getTime() + lead * 60000), slots, max: dur.max - lead, random: random || k > 0,
         budget: a.budget, spent: r ? (r[0] + r[1]) / 2 : 0, prefer: todayPrefer(bad), exclude: new Set([anchor.id]), chains: new Set([chainKey(anchor)]),
         noNight: a.who === 'kids',
       });
@@ -2670,8 +2697,9 @@
       else if (x === 'back') { today.step = Math.max(0, today.step - 1); haptic.tap(); renderToday(); }
       else if (x === 'restart') { today = { step: 0, ans: {}, picks: null, plan: null, seen: new Set() }; haptic.tap(); renderToday(); }
       else if (x === 'more') { haptic.impact(); pickToday(); renderToday(); }
-      else if (x === 'replan') { haptic.impact(); buildTodayPlan(); renderToday(); }
+      else if (x === 'replan') { haptic.impact(); buildTodayPlan(true); renderToday(); }
       else if (x === 'route') { haptic.impact(); todayRoute(); }
+      else if (x === 'profile') openProfile(false);
       return;
     }
     const row = e.target.closest('[data-id]');
@@ -2742,8 +2770,13 @@
     const been = [...visited].reverse().map((id) => byId.get(id)).filter(Boolean);
     return `<div class="sheet-handle"></div>
       <div class="place-head">
-        <div class="place-title"><h2>Мои достижения</h2></div>
+        <div class="place-title"><h2>Профиль и достижения</h2></div>
         <div class="head-actions"><button class="icon-btn" type="button" data-awards="close" aria-label="Закрыть">${icon('close')}</button></div>
+      </div>
+      <div class="prof-card">
+        <b>Рекомендации</b>
+        <small>${profile ? esc(profileSummary()) : 'Ответь на 6 коротких вопросов — подбор будет учитывать твои интересы, любимые кухни, бюджет и то, что тебя утомляет.'}</small>
+        <button class="btn btn-secondary btn-wide" type="button" data-awards="profile">${profile ? 'Изменить ответы' : 'Настроить рекомендации'}</button>
       </div>
       <div class="aw-stats">
         <div class="aw-stat"><b>${s.places}</b><small>${plural(s.places, 'место', 'места', 'мест')}</small></div>
@@ -2756,7 +2789,14 @@
       <div class="section-title">Посещённые места${been.length ? ` <small>${been.length}</small>` : ''}</div>
       ${been.length
         ? `<div class="rows">${been.slice(0, 60).map((p) => rowHtml(p, null, p.district || p.address)).join('')}</div>`
-        : '<p class="empty">Пока пусто. Открой место на карте и нажми «Отметить посещение» — или ставь галочки, когда идёшь по маршруту.</p>'}`;
+        : '<p class="empty">Пока пусто. Открой место на карте и нажми «Отметить посещение» — или ставь галочки, когда идёшь по маршруту.</p>'}
+      <div class="section-title">Документы</div>
+      <div class="doc-links">
+        <a href="#" data-doc="terms">Пользовательское соглашение</a>
+        <a href="#" data-doc="privacy">Политика обработки персональных данных</a>
+        <a href="#" data-doc="consent">Согласие на обработку персональных данных</a>
+      </div>
+      <button class="link-btn link-btn--danger" type="button" data-awards="withdraw">Отозвать согласие и удалить мои данные</button>`;
   }
 
   function openAwards() {
@@ -2776,6 +2816,303 @@
   function visitButtonHtml(p) {
     const on = visited.has(p.id);
     return `<button class="tag tag--btn${on ? ' tag--open' : ''}" type="button" data-action="visit" aria-pressed="${on}">${on ? '✓ Посещено' : '＋ Отметить посещение'}</button>`;
+  }
+
+  // ---------- Документы и согласие ----------
+  // До входа человек принимает пользовательское соглашение, политику и даёт согласие на обработку
+  // персональных данных (docs/*.html). Ответ помним по версии документов: поменялись — спросим снова
+  const LEGAL_V = cfg.LEGAL_VERSION || '1';
+  const DOC_TITLES = { terms: 'Пользовательское соглашение', privacy: 'Политика обработки персональных данных', consent: 'Согласие на обработку персональных данных' };
+  const legalAccepted = () => { try { return localStorage.getItem('legal') === LEGAL_V; } catch (e) { return false; } };
+  let legalDone = null;
+
+  // Оператор и e-mail — из config.js; пока не заполнены, видна пометка «не указано»
+  function fillOperator(root) {
+    const set = (sel, value, empty) => root.querySelectorAll(sel).forEach((el) => {
+      el.textContent = value || empty;
+      el.classList.toggle('todo', !value);
+    });
+    set('[data-op="name"]', cfg.OPERATOR_NAME, '[ФИО или название оператора — не указано]');
+    set('[data-op="email"]', cfg.OPERATOR_EMAIL, '[e-mail для обращений — не указан]');
+    set('[data-op="app"]', cfg.APP_NAME, 'Куда пойти');
+    set('[data-op="bot"]', cfg.BOT_USERNAME ? '@' + cfg.BOT_USERNAME : '', '[бот — не указан]');
+    const [y, m, d] = LEGAL_V.split('-');
+    root.querySelectorAll('[data-op="version"]').forEach((el) => { el.textContent = d ? `${d}.${m}.${y}` : LEGAL_V; });
+  }
+
+  async function openDoc(name) {
+    if (!DOC_TITLES[name]) return;
+    haptic.tap();
+    $('#doc-title').textContent = DOC_TITLES[name];
+    const body = $('#doc-body');
+    body.innerHTML = '<p class="empty">Загружаю…</p>';
+    $('#doc-view').hidden = false;
+    try {
+      const r = await fetch(`docs/${name}.html?v=${encodeURIComponent(window.APP_VERSION || '')}`);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const main = new DOMParser().parseFromString(await r.text(), 'text/html').querySelector('main');
+      main.querySelectorAll('h1').forEach((h) => h.remove());
+      fillOperator(main);
+      body.innerHTML = main.innerHTML;
+    } catch (e) {
+      body.innerHTML = '<p class="empty">Не получилось загрузить документ. Проверь интернет и попробуй ещё раз.</p>';
+    }
+    body.scrollTop = 0;
+  }
+
+  function syncLegal() {
+    $('#legal-ok').disabled = ![...document.querySelectorAll('[data-legal]')].every((c) => c.checked);
+  }
+
+  function showLegal(done) {
+    legalDone = done;
+    const g = $('#legal');
+    g.hidden = false;
+    void g.offsetWidth;
+    g.classList.add('show');
+    syncLegal();
+  }
+
+  function acceptLegal() {
+    try { localStorage.setItem('legal', LEGAL_V); localStorage.setItem('legal_at', new Date().toISOString()); } catch (e) { /* хранилище недоступно */ }
+    if (supports('6.9')) tg.CloudStorage.setItem('legal', LEGAL_V);
+    haptic.notify('success');
+    const g = $('#legal');
+    g.classList.remove('show');
+    setTimeout(() => { g.hidden = true; }, 300);
+    const d = legalDone;
+    legalDone = null;
+    if (d) d();
+  }
+
+  // Согласие уже дано на этом телефоне или в Telegram на другом устройстве — не спрашиваем
+  function ensureLegal(done) {
+    if (legalAccepted()) { done(); return; }
+    if (supports('6.9')) {
+      tg.CloudStorage.getItem('legal', (err, v) => {
+        if (!err && v === LEGAL_V) { try { localStorage.setItem('legal', LEGAL_V); } catch (e) { /* хранилище недоступно */ } done(); }
+        else showLegal(done);
+      });
+    } else showLegal(done);
+  }
+
+  // Отзыв согласия: удаляем всё, что приложение хранит о человеке, — на телефоне и в облаке Telegram
+  const USER_KEYS = ['favs', 'age18', 'theme', 'route_draft', 'routes_saved', 'routes_liked', 'visited', 'routes_done', 'onboarded', 'legal', 'profile', 'profile_skip'];
+  function withdrawConsent() {
+    const go = () => {
+      try { USER_KEYS.concat(['legal_at', 'gen', 'weather', 'lite']).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* хранилище недоступно */ }
+      if (supports('6.9')) tg.CloudStorage.removeItems(USER_KEYS, () => location.reload());
+      else location.reload();
+    };
+    const text = 'Отозвать согласие? Избранное, маршруты, отметки, ответы и настройки удалятся с этого устройства и из облака Telegram. Чтобы снова пользоваться приложением, нужно будет заново принять документы.';
+    if (supports('6.2')) tg.showConfirm(text, (ok) => ok && go());
+    else if (window.confirm(text)) go();
+  }
+
+  // ---------- Профиль рекомендаций: интересы и вопросы о предпочтениях ----------
+  // Ответы превращаются в понятные правила оценки мест (profileK): каждое правило опирается
+  // на данные Яндекс Карт — категорию и рубрики, кухни, цену, «на улице / в помещении», число оценок
+  const CUISINE_RE = {
+    georgian: /грузин|кавказ|армян|азербайдж/, italian: /итальян|пицц/, asian: /япон|паназиат|китай|корей|вьетнам|тай|азиат/,
+    russian: /русск|домашн/, european: /европ/, east: /узбек|восточ|турец|арабск|ливан/, meat: /мясн|стейк|гриль/, veg: /вегет|веган/,
+  };
+  const PROFILE_Q = [
+    { key: 'interests', multi: true, title: 'Что тебе интересно?', sub: 'Выбери всё, что нравится', opts: [
+      { v: 'coffee', e: '☕', label: 'Кофейни' },
+      { v: 'food', e: '🍽', label: 'Рестораны и кафе' },
+      { v: 'parks', e: '🌳', label: 'Парки и прогулки' },
+      { v: 'views', e: '🌇', label: 'Виды и смотровые' },
+      { v: 'museum', e: '🏛', label: 'Музеи и выставки' },
+      { v: 'sights', e: '🏙', label: 'Улицы и достопримечательности' },
+      { v: 'mall', e: '🛍', label: 'ТЦ и шопинг' },
+      { v: 'night', e: '🍸', label: 'Бары и кальянные', adult: true },
+    ] },
+    { key: 'evening', title: 'Как выглядит твой идеальный вечер?', opts: [
+      { v: 'dinner', e: '🍷', label: 'Ужин в хорошем ресторане' },
+      { v: 'walk', e: '🌆', label: 'Долгая прогулка по городу' },
+      { v: 'talk', e: '☕', label: 'Кофе и разговоры' },
+      { v: 'culture', e: '🖼', label: 'Выставка или музей' },
+      { v: 'bar', e: '🍸', label: 'Бар с друзьями', adult: true },
+      { v: 'short', e: '🏠', label: 'Выбраться ненадолго и недалеко' },
+    ] },
+    { key: 'tired', multi: true, title: 'Что тебя утомляет?', sub: 'Такие места будут ниже в подборе', opts: [
+      { v: 'crowds', e: '👥', label: 'Толпы и самые раскрученные места' },
+      { v: 'travel', e: '🚇', label: 'Долгая дорога' },
+      { v: 'noise', e: '🔊', label: 'Шумные бары и фудкорты' },
+      { v: 'pricey', e: '💸', label: 'Дорогие места' },
+      { v: 'outdoor', e: '🥶', label: 'Долго быть на улице' },
+      { v: 'none', e: '😌', label: 'Ничего из этого', exclusive: true },
+    ] },
+    { key: 'who', title: 'С кем ты обычно ходишь?', opts: [
+      { v: 'solo', e: '🙋', label: 'Чаще один или одна' },
+      { v: 'date', e: '💕', label: 'Вдвоём' },
+      { v: 'friends', e: '👯', label: 'С друзьями' },
+      { v: 'kids', e: '🧸', label: 'С детьми' },
+    ] },
+    { key: 'budget', title: 'Сколько обычно тратишь за выход?', sub: 'На человека', opts: [
+      { v: 0, e: '🆓', label: 'Стараюсь бесплатно' },
+      { v: 1000, e: '💸', label: 'До 1 000 ₽' },
+      { v: 2500, e: '💳', label: 'До 2 500 ₽' },
+      { v: 5000, e: '💰', label: 'До 5 000 ₽' },
+      { v: 10000, e: '💎', label: 'До 10 000 ₽' },
+      { v: null, e: '♾️', label: 'Не считаю' },
+    ] },
+    { key: 'cuisines', multi: true, title: 'Какую кухню любишь?', sub: 'Если ничего не выбрать — подойдёт любая', opts: [
+      { v: 'georgian', e: '🥟', label: 'Грузинская и кавказская' },
+      { v: 'italian', e: '🍝', label: 'Итальянская' },
+      { v: 'asian', e: '🍣', label: 'Японская и азиатская' },
+      { v: 'russian', e: '🥞', label: 'Русская' },
+      { v: 'european', e: '🥗', label: 'Европейская' },
+      { v: 'east', e: '🍢', label: 'Восточная' },
+      { v: 'meat', e: '🥩', label: 'Мясо и стейки' },
+      { v: 'veg', e: '🥦', label: 'Вегетарианская' },
+    ] },
+  ];
+
+  let profile = readJson('profile', null);
+  function saveProfile() {
+    const s = JSON.stringify(profile);
+    try { localStorage.setItem('profile', s); } catch (e) { /* хранилище недоступно */ }
+    if (supports('6.9')) tg.CloudStorage.setItem('profile', s);
+  }
+  function loadCloudProfile() {
+    if (!supports('6.9')) return;
+    tg.CloudStorage.getItem('profile', (err, v) => {
+      if (err || !v) return;
+      let p;
+      try { p = JSON.parse(v); } catch (e) { return; }
+      if (p && typeof p === 'object' && (!profile || (p.ts || 0) > (profile.ts || 0))) {
+        profile = p;
+        try { localStorage.setItem('profile', v); } catch (e) { /* хранилище недоступно */ }
+      }
+    });
+  }
+
+  // Подходит ли место под интерес из профиля
+  function interestMatch(p, v) {
+    const t = placeText(p);
+    switch (v) {
+      case 'parks': return p.cat === 'photo' && /парк|сквер|сад|заповедник|усадьб/.test(t);
+      case 'views': return collSet('views').has(p.id) || /смотров|панорам/.test(t);
+      case 'sights': return p.cat === 'photo' && /достопримечательн|улица|площад|бульвар|набережн|мост|переул/.test(t);
+      default: return p.cat === v;
+    }
+  }
+  const favCuisine = (p) => p.cat === 'food' && profile && (profile.cuisines || []).find((c) => CUISINE_RE[c] && CUISINE_RE[c].test(cuisineText(p)));
+  const tiredOf = (v) => !!(profile && (profile.tired || []).includes(v));
+
+  // Множитель к оценке места по профилю: каждое правило — отдельная строчка, без случайностей
+  function profileK(p) {
+    if (!profile) return 1;
+    let k = 1;
+    const ints = profile.interests || [];
+    if (ints.length) k *= ints.some((v) => interestMatch(p, v)) ? 1.35 : 0.8;          // твои интересы — выше
+    const ev = { dinner: p.cat === 'food' && (minPrice(p) || 0) >= 1000, walk: p.cat === 'photo', talk: p.cat === 'coffee', culture: p.cat === 'museum', bar: p.cat === 'night' }[profile.evening];
+    if (ev) k *= 1.2;                                                                  // похоже на идеальный вечер
+    if (tiredOf('crowds')) {                                                           // меньше всего на слуху, но с высокой оценкой
+      if ((p.pop || 0) > 20000) k *= 0.6;
+      else if ((p.pop || 0) < 3000 && p.rating >= 4.7) k *= 1.15;
+    }
+    if (tiredOf('noise') && (p.kind === 'food_court' || /бар|паб|караоке|клуб|кальян/.test(placeText(p)))) k *= 0.5;
+    if (tiredOf('pricey')) { const r = priceRange(p); if (r && (r[0] + r[1]) / 2 > 2500) k *= 0.5; }
+    if (tiredOf('outdoor')) k *= p.setting === 'outdoor' ? 0.6 : p.setting === 'indoor' ? 1.15 : 1;
+    if (favCuisine(p)) k *= 1.4;                                                       // любимая кухня
+    return k;
+  }
+
+  let prof = { step: 0, ans: {}, first: false };
+
+  function profileSummary() {
+    if (!profile) return '';
+    const label = (key, v) => { const o = PROFILE_Q.find((q) => q.key === key).opts.find((x) => x.v === v); return o ? o.label.toLowerCase() : ''; };
+    const parts = [];
+    if ((profile.interests || []).length) parts.push('Интересы: ' + profile.interests.map((v) => label('interests', v)).join(', '));
+    if (profile.evening) parts.push('идеальный вечер: ' + label('evening', profile.evening));
+    if ((profile.cuisines || []).length) parts.push('кухни: ' + profile.cuisines.map((v) => label('cuisines', v)).join(', '));
+    if (profile.budget !== undefined) parts.push('бюджет: ' + label('budget', profile.budget));
+    return parts.join(' · ');
+  }
+
+  function profileHtml() {
+    const head = `<div class="sheet-handle"></div>
+      <div class="place-head">
+        <div class="place-title"><h2>Настроить рекомендации</h2></div>
+        <div class="head-actions"><button class="icon-btn" type="button" data-prof="close" aria-label="Закрыть">${icon('close')}</button></div>
+      </div>`;
+    if (prof.step >= PROFILE_Q.length) {
+      return head + `<p class="place-desc">Готово! Теперь «Куда сегодня?», «Собери маршрут за меня» и «Мне повезёт» учитывают твои ответы.</p>
+        <p class="near-note">${esc(profileSummary())}</p>
+        <button class="btn btn-primary btn-wide" type="button" data-prof="done">Отлично</button>`;
+    }
+    const q = PROFILE_Q[prof.step];
+    const cur = prof.ans[q.key];
+    const on = (o) => (q.multi ? (cur || []).includes(o.v) : cur === o.v);
+    return head + (prof.step === 0 && prof.first ? '<p class="near-note">6 коротких вопросов — и подбор будет учитывать твои вкусы. Ответы хранятся только на твоём телефоне и в твоём Telegram.</p>' : '')
+      + `<div class="today-dots">${PROFILE_Q.map((_, i) => `<i${i <= prof.step ? ' class="on"' : ''}></i>`).join('')}</div>
+      <h3 class="today-q">${q.title} <small>${prof.step + 1} из ${PROFILE_Q.length}</small></h3>
+      ${q.sub ? `<p class="near-note">${q.sub}</p>` : ''}
+      <div class="today-opts">${q.opts.map((o) => `<button type="button" class="today-opt${on(o) ? ' today-opt--on' : ''}" data-prof-ans="${q.key}" data-val="${o.v}" aria-pressed="${on(o)}">
+        <span class="today-e">${o.e}</span><b>${o.label}${o.adult ? AGE_BADGE : ''}</b></button>`).join('')}</div>
+      ${q.multi ? `<button class="btn btn-primary btn-wide" type="button" data-prof="next">${(cur || []).length ? 'Дальше' : 'Пропустить вопрос'}</button>` : ''}
+      <div class="draft-links">${prof.step ? '<button type="button" data-prof="back">← Назад</button>' : ''}<button type="button" data-prof="skip">${profile ? 'Отмена' : 'Заполню потом'}</button></div>`;
+  }
+
+  function renderProfile() { $('#profile-sheet').innerHTML = profileHtml(); }
+
+  function openProfile(first) {
+    prof = { step: 0, ans: profile ? JSON.parse(JSON.stringify(profile)) : {}, first: !!first };
+    renderProfile();
+    openSheet('profile');
+  }
+
+  function profileNext() {
+    prof.step++;
+    if (prof.step >= PROFILE_Q.length) {
+      profile = Object.assign({ interests: [], tired: [], cuisines: [] }, prof.ans, { ts: Date.now() });
+      saveProfile();
+      haptic.notify('success');
+    }
+    renderProfile();
+    $('#profile-sheet').scrollTop = 0;
+  }
+
+  function onProfileClick(e) {
+    const a = e.target.closest('[data-prof-ans]');
+    if (a) {
+      const q = PROFILE_Q.find((x) => x.key === a.dataset.profAns);
+      const o = q.opts.find((x) => String(x.v) === a.dataset.val);
+      const apply = () => {
+        haptic.tap();
+        if (q.multi) {
+          let list = (prof.ans[q.key] || []).slice();
+          if (list.includes(o.v)) list = list.filter((v) => v !== o.v);
+          else list = o.exclusive ? [o.v] : list.filter((v) => !q.opts.some((x) => x.exclusive && x.v === v)).concat(o.v);
+          prof.ans[q.key] = list;
+          renderProfile();
+        } else { prof.ans[q.key] = o.v; profileNext(); }
+      };
+      if (o.adult && !adultOk) askAdult().then((ok) => { openSheet('profile'); if (ok) apply(); });
+      else apply();
+      return;
+    }
+    const act = e.target.closest('[data-prof]');
+    if (!act) return;
+    const x = act.dataset.prof;
+    if (x === 'next') { haptic.tap(); profileNext(); }
+    else if (x === 'back') { prof.step = Math.max(0, prof.step - 1); haptic.tap(); renderProfile(); }
+    else if (x === 'skip') {
+      if (!profile) try { localStorage.setItem('profile_skip', '1'); } catch (err) { /* хранилище недоступно */ }
+      closeSheets();
+      if (!profile) toast('Настроить можно в любой момент: кубок вверху → «Настроить рекомендации»');
+    }
+    else if (x === 'close' || x === 'done') closeSheets();
+  }
+
+  // После знакомства — предложить настроить рекомендации (один раз; «Заполню потом» — больше не навязываем)
+  function maybeProfile() {
+    let skipped = false;
+    try { skipped = localStorage.getItem('profile_skip') === '1'; } catch (e) { /* хранилище недоступно */ }
+    if (!profile && !skipped && !openSheetName) openProfile(true);
   }
 
   // ---------- Знакомство при первом запуске ----------
@@ -2805,7 +3142,7 @@
     const ob = $('#onboard');
     ob.classList.remove('show');
     markOnboarded();
-    setTimeout(() => { ob.hidden = true; }, 350);
+    setTimeout(() => { ob.hidden = true; maybeProfile(); }, 350); // после знакомства — предложить настроить рекомендации
   }
 
   function openOnboard() {
@@ -2839,11 +3176,12 @@
   function maybeOnboard() {
     let done = false;
     try { done = localStorage.getItem('onboarded') === '1'; } catch (e) { /* хранилище недоступно */ }
-    if (done || /[?&]onboard=0/.test(location.search)) return;
+    if (/[?&]onboard=0/.test(location.search)) return;
+    if (done) { setTimeout(maybeProfile, 1200); return; } // знакомство уже было — один раз предложим анкету
     const show = () => setTimeout(() => { if (!openSheetName) openOnboard(); else markOnboarded(); }, 900);
     if (supports('6.9')) {
       tg.CloudStorage.getItem('onboarded', (err, v) => {
-        if (!err && v === '1') { try { localStorage.setItem('onboarded', '1'); } catch (e) { /* хранилище недоступно */ } return; }
+        if (!err && v === '1') { try { localStorage.setItem('onboarded', '1'); } catch (e) { /* хранилище недоступно */ } setTimeout(maybeProfile, 1200); return; }
         show();
       });
     } else show();
@@ -2855,7 +3193,7 @@
   function warmEmoji() {
     // Шрифт готовится отдельно под каждый размер — поэтому прогреваем эмодзи ровно в тех размерах,
     // в которых они встречаются: плитки вопросов, сводка ответов, форма маршрута, погода, значки и т. д.
-    const qs = [Q_MOOD, Q_WHERE, Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET].concat(Object.values(Q_DETAIL));
+    const qs = [Q_MOOD, Q_WHERE, Q_WHO, Q_WHEN, Q_TIME, Q_BUDGET].concat(Object.values(Q_DETAIL), PROFILE_Q);
     const qEmoji = [].concat(...qs.map((q) => q.opts.map((o) => o.e)));
     const wxEmoji = '☀️ 🌙 🌤 ⛅ ☁️ 🌫 🌦 🌧 🌨 ⛈ 🌡'.split(' ');
     const routeEmoji = READY_ROUTES.map((r) => r.emoji).filter(Boolean).concat(['✨', '🚶', '📍', '🤝']);
@@ -2944,9 +3282,25 @@
     });
     $('#open-favs').addEventListener('click', () => { haptic.tap(); renderFavs(); openSheet('favs'); });
     $('#open-awards').addEventListener('click', openAwards);
+    $('#profile-sheet').addEventListener('click', onProfileClick);
+    // Документы: ссылки где угодно (окно согласия, профиль) открывают их внутри приложения
+    document.addEventListener('click', (e) => {
+      const d = e.target.closest('[data-doc]');
+      if (d) { e.preventDefault(); openDoc(d.dataset.doc); }
+    });
+    $('#doc-view').addEventListener('click', (e) => {
+      if (e.target.closest('[data-doc-close]')) { $('#doc-view').hidden = true; return; }
+      const a = e.target.closest('a[href$=".html"]');
+      if (a) { e.preventDefault(); openDoc(a.getAttribute('href').replace('.html', '')); }
+    });
+    $('#legal').addEventListener('change', syncLegal);
+    $('#legal-all').addEventListener('click', () => { document.querySelectorAll('[data-legal]').forEach((c) => { c.checked = true; }); haptic.tap(); syncLegal(); });
+    $('#legal-ok').addEventListener('click', acceptLegal);
     $('#today-sheet').addEventListener('click', onTodayClick);
     $('#awards-sheet').addEventListener('click', (e) => {
       if (e.target.closest('[data-awards="close"]')) { closeSheets(); return; }
+      if (e.target.closest('[data-awards="profile"]')) { haptic.tap(); openProfile(false); return; }
+      if (e.target.closest('[data-awards="withdraw"]')) { withdrawConsent(); return; }
       const row = e.target.closest('[data-id]');
       const p = row && byId.get(row.dataset.id);
       if (p) { haptic.tap(); openPlace(p, { focus: true }); placeBack = 'awards'; }
@@ -3057,7 +3411,7 @@
         else if (x === 'share') shareRoute(r);
         else if (x === 'go') { haptic.impact(); openLink(routeGoUrl(routePlaces(r.ids), r.fromMe)); }
         else if (x === 'like') { toggleRouteLike(r.id); renderRouteSheet(); }
-        else if (x === 'regen') { if (r.regen === 'today' && today.picks) { buildTodayPlan(); todayRoute(); } else generateRoute(); }
+        else if (x === 'regen') { if (r.regen === 'today' && today.picks) { buildTodayPlan(true); todayRoute(); } else generateRoute(true); }
         else if (x === 'from-me') {
           if (r.fromMe) { r.fromMe = null; drawRouteLine(); renderRouteSheet(); return; }
           a.textContent = 'Ищу, где ты…';
@@ -3098,6 +3452,7 @@
     loadCloudTheme();
     loadCloudFavs();
     loadCloudRoutes();
+    loadCloudProfile();
     $('#backdrop').addEventListener('click', () => closeSheets());
     $('#splash-retry').addEventListener('click', () => location.reload());
     $('#place-sheet').addEventListener('click', (e) => {
@@ -3178,7 +3533,11 @@
     } else if (sp === 'routes' || new URLSearchParams(location.search).get('routes') === '1') {
       // кнопка «🚶 Маршруты» в приветствии бота — сразу открываем список маршрутов
       districtsReady.then(() => setTimeout(() => openRoutes('ready'), 400));
-    } else maybeOnboard(); // по ссылке от друга знакомство не показываем — человек пришёл за конкретным
+    }
+    // Сначала — согласие с документами (для всех, и по ссылкам от друзей тоже); потом знакомство и анкета —
+    // только для тех, кто открыл приложение сам
+    const deepLink = !!sp || /[?&](lucky|routes)=1/.test(location.search);
+    ensureLegal(() => { if (!deepLink) maybeOnboard(); });
     loadWeather();
   }
 

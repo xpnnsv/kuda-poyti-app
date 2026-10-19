@@ -9,7 +9,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <!-- Версия файлов: tools/publish.ps1 подставляет сюда время публикации -->
-  <script>window.APP_VERSION = '202610191310';</script>
+  <script>window.APP_VERSION = '202610191337';</script>
   <!-- Заранее открываем соединения с серверами карты, шрифтов и Telegram — быстрее запуск -->
   <link rel="preconnect" href="https://api-maps.yandex.ru" crossorigin>
   <link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin>
@@ -22,7 +22,7 @@
   <title>Куда пойти</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4C20.4 4 11 13 11 24.3 11 39.5 32 60 32 60s21-20.5 21-35.7C53 13 43.6 4 32 4z' fill='%23ff4059'/%3E%3Ccircle cx='32' cy='24' r='8' fill='%23fff'/%3E%3C/svg%3E">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=202610191310">
+  <link rel="stylesheet" href="css/style.css?v=202610191337">
 </head>
 <body>
   <!-- Иконки: один набор на всё приложение (метки, кнопки, карточки) -->
@@ -84,7 +84,7 @@
         <svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg>
         <span id="fav-count" class="fav-count" hidden>0</span>
       </button>
-      <button id="open-awards" class="search-fav" type="button" aria-label="Мои достижения">
+      <button id="open-awards" class="search-fav" type="button" aria-label="Профиль и достижения">
         <svg class="ic" aria-hidden="true"><use href="#i-trophy"/></svg>
         <span id="award-count" class="fav-count" hidden>0</span>
       </button>
@@ -247,7 +247,33 @@
   <section id="today-sheet" class="sheet sheet--tall" aria-label="Куда сегодня"></section>
 
   <!-- Достижения -->
-  <section id="awards-sheet" class="sheet sheet--tall" aria-label="Мои достижения"></section>
+  <section id="awards-sheet" class="sheet sheet--tall" aria-label="Профиль и достижения"></section>
+
+  <!-- Настроить рекомендации: интересы и несколько вопросов о предпочтениях -->
+  <section id="profile-sheet" class="sheet sheet--tall" aria-label="Настроить рекомендации"></section>
+
+  <!-- Согласие с документами — до входа в приложение -->
+  <div id="legal" class="legal" role="dialog" aria-modal="true" aria-label="Документы" hidden>
+    <div class="legal-card">
+      <div class="legal-mark">📍</div>
+      <h2>Добро пожаловать в «<span data-app-name>Куда пойти</span>»</h2>
+      <p class="legal-lead">Перед началом прочитай и прими документы. Без согласия приложение работать не может.</p>
+      <label class="legal-row"><input type="checkbox" data-legal="terms"><span class="legal-box" aria-hidden="true"></span>
+        <span>Принимаю <a href="#" data-doc="terms">Пользовательское соглашение</a></span></label>
+      <label class="legal-row"><input type="checkbox" data-legal="privacy"><span class="legal-box" aria-hidden="true"></span>
+        <span>Ознакомлен(а) с <a href="#" data-doc="privacy">Политикой обработки персональных данных</a></span></label>
+      <label class="legal-row"><input type="checkbox" data-legal="consent"><span class="legal-box" aria-hidden="true"></span>
+        <span>Даю <a href="#" data-doc="consent">Согласие на обработку персональных данных</a></span></label>
+      <button id="legal-ok" class="btn btn-primary btn-wide" type="button" disabled>Продолжить</button>
+      <button id="legal-all" class="legal-all" type="button">Отметить всё</button>
+    </div>
+  </div>
+
+  <!-- Просмотр документа внутри приложения -->
+  <div id="doc-view" class="doc-view" role="dialog" aria-modal="true" hidden>
+    <div class="doc-head"><b id="doc-title"></b><button class="icon-btn" type="button" data-doc-close aria-label="Закрыть"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div id="doc-body" class="doc-body"></div>
+  </div>
 
   <!-- Знакомство при первом запуске -->
   <div id="onboard" class="onboard" role="dialog" aria-label="Знакомство с приложением" hidden>
@@ -259,14 +285,14 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/config.js?v=202610191310"></script>
-  <script src="js/places.js?v=202610191310"></script>
-  <script src="js/collections.js?v=202610191310"></script>
-  <script src="js/routes.js?v=202610191310"></script>
-  <script src="js/metro.js?v=202610191310"></script>
-  <script src="js/photos.js?v=202610191310"></script>
-  <script src="js/hours.js?v=202610191310"></script>
-  <script src="js/map.js?v=202610191310"></script>
-  <script src="js/app.js?v=202610191310"></script>
+  <script src="js/config.js?v=202610191337"></script>
+  <script src="js/places.js?v=202610191337"></script>
+  <script src="js/collections.js?v=202610191337"></script>
+  <script src="js/routes.js?v=202610191337"></script>
+  <script src="js/metro.js?v=202610191337"></script>
+  <script src="js/photos.js?v=202610191337"></script>
+  <script src="js/hours.js?v=202610191337"></script>
+  <script src="js/map.js?v=202610191337"></script>
+  <script src="js/app.js?v=202610191337"></script>
 </body>
 </html>
