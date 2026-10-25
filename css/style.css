@@ -1341,3 +1341,65 @@ img.emo-title { width: 0.95em; height: 0.95em; vertical-align: -0.1em; }
 .chip-wx .emo { width: 17px; height: 17px; vertical-align: -3px; }
 .seg-btn .emo { width: 17px; height: 17px; vertical-align: -3px; }
 #toast .emo { width: 18px; height: 18px; vertical-align: -3px; }
+
+/* ---------- Оценка после посещения «Как тебе?» ---------- */
+.rate { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 2px; }
+.rate > span { margin-right: 2px; color: var(--hint); font-size: 13px; font-weight: 700; }
+.rate-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: 32px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.12s;
+}
+.rate-btn:active { transform: scale(0.95); }
+.rate-btn.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.rate-btn .emo { width: 17px; height: 17px; vertical-align: 0; }
+.rate-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 22px; }
+.rate-row { display: flex; align-items: center; gap: 6px; }
+.rate-name { flex: 1; min-width: 0; padding: 6px 2px; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.rate-name b, .rate-name small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rate-name b { font-size: 14.5px; font-weight: 800; }
+.rate-name small { color: var(--hint); font-size: 12.5px; font-weight: 600; }
+.rate-row .rate-btn { flex: none; width: 46px; height: 40px; padding: 0; }
+.rate-row .rate-btn .emo { width: 20px; height: 20px; }
+.prof-card .prof-rates { margin-top: 8px; }
+.prof-rates .emo { width: 15px; height: 15px; vertical-align: -2px; }
+
+/* ---------- «Мой месяц» ---------- */
+.month { margin: 0 0 18px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; }
+.month-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 8px; margin-bottom: 10px; }
+.month-head b { font-size: 16.5px; font-weight: 800; }
+.month-head b .emo { width: 20px; height: 20px; vertical-align: -3px; }
+.month-head small { color: var(--hint); font-size: 12.5px; font-weight: 700; }
+.month-tabs { margin-bottom: 12px; }
+.month-tabs .seg-btn { height: 34px; padding: 0 13px; font-size: 13.5px; }
+.month .aw-stats { margin: 0 0 10px; }
+.month .aw-stat { background: var(--surface-2); }
+.month-facts { margin: 0 0 6px; padding: 0; list-style: none; }
+.month-facts li { position: relative; padding: 3px 0 3px 16px; font-size: 14px; font-weight: 600; line-height: 1.4; }
+.month-facts li::before { content: ''; position: absolute; left: 3px; top: 11px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.month .f-label { margin: 8px 0 6px; }
+.month-awards { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.month-awards span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-size: 13px; font-weight: 800; }
+.month-awards .emo { width: 16px; height: 16px; vertical-align: 0; }
+.month-empty { margin: 0; color: var(--hint); font-size: 13.5px; font-weight: 600; line-height: 1.45; }
+.btn .emo { width: 20px; height: 20px; vertical-align: 0; }
+
+/* Полученный значок — кнопка «в историю» */
+button.award { display: block; width: 100%; font: inherit; color: inherit; cursor: pointer; transition: transform 0.12s; }
+button.award:active { transform: scale(0.96); }
+
+/* ---------- Маршрут: в календарь и в историю ---------- */
+.route-more { display: flex; gap: 8px; margin-top: 8px; }
+.route-more .btn { flex: 1; min-width: 0; height: 46px; padding: 0 10px; font-size: 14.5px; box-shadow: none; }
+.cal-opts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.cal-opts button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+
+/* ---------- Сезонная подборка — первой, во всю ширину ---------- */
+.coll-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.coll--season { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 12px; min-height: 0; border-color: transparent; background: var(--accent-soft); }
+.coll--season:active { background: var(--accent-soft); opacity: 0.85; }
+.coll--season img.coll-emoji { width: 30px; height: 30px; margin-bottom: 0; }
+.coll--season small { color: var(--accent-ink); }

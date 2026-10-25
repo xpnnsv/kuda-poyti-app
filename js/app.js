@@ -19,7 +19,7 @@
   // (иначе часть эмодзи — 🏛 🍽 ☀ — на некоторых телефонах выходит чёрным значком шрифта).
   // Обычная картинка <img>: браузер один раз превращает её в растр и дальше просто показывает —
   // это заметно легче для телефона, чем живой SVG. Картинки нет в наборе — показываем сам символ
-  const EMOJI_SET = new Set('23f0 23f1 2600 2601 2614 2615 267e 26a1 26c5 26c8 26ea 26f2 26f8 2728 2764 1f193 1f306 1f307 1f30d 1f319 1f321 1f324 1f326 1f327 1f328 1f32b 1f333 1f338 1f33f 1f342 1f35d 1f362 1f363 1f370 1f377 1f378 1f37d 1f389 1f3a0 1f3a8 1f3b2 1f3c5 1f3c6 1f3d9 1f3db 1f3e0 1f3ed 1f3ef 1f3f0 1f463 1f465 1f46f 1f48e 1f495 1f4b0 1f4b3 1f4b8 1f4c5 1f4cd 1f4f8 1f50a 1f52d 1f551 1f5bc 1f5d3 1f5fa 1f60c 1f64b 1f680 1f687 1f6b6 1f6cb 1f6cd 1f91d 1f957 1f959 1f95e 1f95f 1f964 1f966 1f969 1f976 1f97e 1f9a2 1f9ed 1f9f1 1f9f8'.split(' '));
+  const EMOJI_SET = new Set('23f0 23f1 2600 2601 2614 2615 267e 26a1 26c5 26c8 26ea 26f2 26f8 2728 2764 1f193 1f306 1f307 1f30d 1f319 1f321 1f324 1f326 1f327 1f328 1f32b 1f333 1f338 1f33f 1f342 1f35d 1f362 1f363 1f370 1f377 1f378 1f37d 1f389 1f3a0 1f3a8 1f3b2 1f3c5 1f3c6 1f3d9 1f3db 1f3e0 1f3ed 1f3ef 1f3f0 1f44d 1f44e 1f463 1f465 1f46f 1f48e 1f495 1f4b0 1f4b3 1f4b8 1f4c5 1f4cd 1f4f8 1f50a 1f52d 1f551 1f5bc 1f5d3 1f5fa 1f60c 1f64b 1f680 1f687 1f6b6 1f6cb 1f6cd 1f91d 1f957 1f959 1f95e 1f95f 1f964 1f966 1f969 1f976 1f97e 1f9a2 1f9ed 1f9f1 1f9f8'.split(' '));
   const emojiCode = (e) => [...String(e)].map((c) => c.codePointAt(0).toString(16)).filter((h) => h !== 'fe0f').join('-');
   function emo(e, cls) {
     if (!e) return '';
@@ -731,7 +731,7 @@
       const back = placeBack;
       placeBack = null;
       if (back === 'today') renderToday();
-      else if (back === 'awards') $('#awards-sheet').innerHTML = awardsHtml();
+      else if (back === 'awards') rerenderAwards();
       openSheet(back);
     }
   }
@@ -839,6 +839,7 @@
         ${d !== null ? `<span class="tag">${distanceText(d)}</span>` : ''}
         ${p.source === 'live' ? '' : visitButtonHtml(p)}
       </div>
+      ${p.source === 'live' ? '' : `<div class="rate-slot">${rateHtml(p)}</div>`}
       ${p.desc ? `<p class="place-desc">${esc(p.desc)}</p>` : ''}
       ${insideHtml(p)}
       ${infoHtml(p, todayHours, site)}
@@ -909,16 +910,16 @@
 
   function lucky() {
     // Бары (18+) выпадают, только если человек сам выбрал эту категорию
-    const pool = narrow(allPlaces().filter((p) => matches(p) && (p.cat !== 'night' || state.cats.has('night'))));
+    const pool = narrow(allPlaces().filter((p) => matches(p) && !disliked(p) && (p.cat !== 'night' || state.cats.has('night'))));
     if (!pool.length) {
       haptic.notify('error');
       toast('Под такие фильтры ничего нет — попробуй их смягчить');
       return;
     }
-    // случайно, но с учётом профиля: что тебе ближе по ответам, выпадает чаще
+    // случайно, но с учётом профиля и оценок: что тебе ближе, выпадает чаще
     let pick = pool[Math.floor(Math.random() * pool.length)];
-    if (profile) {
-      const w = pool.map((p) => profileK(p));
+    if (profile || taste().size) {
+      const w = pool.map((p) => profileK(p) * tasteK(p));
       let r = Math.random() * w.reduce((s, x) => s + x, 0);
       for (let i = 0; i < pool.length; i++) { r -= w[i]; if (r <= 0) { pick = pool[i]; break; } }
     }
@@ -955,9 +956,30 @@
     </button>`;
   }
 
-  const collTileHtml = (c) => `<button class="coll" type="button" data-coll="${c.id}">
-      ${emo(c.emoji, 'coll-emoji')}<b>${esc(c.title)}</b><small>${c.set.size} ${plural(c.set.size, 'место', 'места', 'мест')}</small>
+  const collTileHtml = (c) => `<button class="coll${c.season ? ' coll--season' : ''}" type="button" data-coll="${c.id}">
+      ${emo(c.emoji, 'coll-emoji')}<span class="coll-text"><b>${esc(c.title)}</b><small>${c.season ? 'По сезону · ' : ''}${c.set.size} ${plural(c.set.size, 'место', 'места', 'мест')}</small></span>
     </button>`;
+
+  // ---------- Сезонная подборка ----------
+  // Собирается сама из мест на карте — по рубрикам и описаниям из Яндекс Карт, лучшие по оценкам.
+  // Осенью — парки, сады и усадьбы; зимой — катки; весной — сады; летом — набережные, пруды, парки
+  const SEASON_COLLS = {
+    autumn: { emoji: '🍂', title: 'Золотая осень', test: (p, t) => p.cat === 'photo' && p.setting !== 'indoor' && /парк|сад|усадьб|заповедник|лесопарк|роща/.test(t) },
+    winter: { emoji: '⛸', title: 'Катки', test: (p, t) => /каток|катки/.test(t) || (p.fun || []).some((f) => /каток/i.test(f.join(' '))) },
+    spring: { emoji: '🌸', title: 'Весенние сады', test: (p, t) => p.cat === 'photo' && /(^|[^а-я])сад|ботаническ|оранжере/.test(t) },
+    summer: { emoji: '☀️', title: 'Лето на воздухе', test: (p, t) => p.cat === 'photo' && p.setting !== 'indoor' && /набережн|пруд|пляж|смотров|парк/.test(t) },
+  };
+  let seasonFor = 0;
+  function refreshSeasonColl() {
+    if (seasonFor === curated.length) return;
+    seasonFor = curated.length;
+    const def = SEASON_COLLS[SEASON];
+    const i = COLLECTIONS.findIndex((c) => c.season);
+    if (i >= 0) COLLECTIONS.splice(i, 1);
+    const q = (p) => Math.sqrt(p.pop || 30) * (p.rating >= 4.8 ? 1.3 : 1);
+    const top = curated.filter((p) => p.rating >= 4.5 && def.test(p, placeText(p))).sort((a, b) => q(b) - q(a)).slice(0, 16);
+    if (top.length >= 3) COLLECTIONS.unshift({ id: 'season', season: true, emoji: def.emoji, title: def.title, set: new Set(top.map((p) => p.id)) });
+  }
 
   // ---------- Поиск ----------
   // Сначала ищем в названии, потом в кухнях, заведениях внутри ТЦ, адресе и описании
@@ -1221,16 +1243,19 @@
 
   function loadCloudRoutes() {
     if (!supports('6.9')) return;
-    tg.CloudStorage.getItems(['route_draft', 'routes_saved', 'routes_liked', 'visited', 'routes_done'], (err, v) => {
+    tg.CloudStorage.getItems(['route_draft', 'routes_saved', 'routes_liked', 'visited', 'routes_done', 'visit_days', 'rates'], (err, v) => {
       if (err || !v) return;
       const parse = (s) => { try { return JSON.parse(s); } catch (e) { return null; } };
       const d = parse(v.route_draft), s = parse(v.routes_saved), l = parse(v.routes_liked);
-      const vis = parse(v.visited), done = parse(v.routes_done);
+      const vis = parse(v.visited), done = parse(v.routes_done), days = parse(v.visit_days), rt = parse(v.rates);
       if (Array.isArray(d)) draft = d;
       if (Array.isArray(s)) savedRoutes = s;
       if (Array.isArray(l)) { likedRoutes.clear(); l.forEach((id) => likedRoutes.add(id)); }
       if (Array.isArray(vis)) vis.forEach((id) => visited.add(id));
       if (Array.isArray(done)) routesDone = done;
+      // с другого устройства: добавляем то, чего здесь нет (здешнее новее — оставляем)
+      if (days && typeof days === 'object' && !Array.isArray(days)) for (const [id, day] of Object.entries(days)) if (!(id in visitDays) && typeof day === 'number') visitDays[id] = day;
+      if (rt && typeof rt === 'object' && !Array.isArray(rt)) { for (const [id, r] of Object.entries(rt)) if (!(id in rates) && (r === 1 || r === -1)) rates[id] = r; tasteMap = null; }
       updateDraftBadge();
       updateAwardBadge();
     });
@@ -1449,15 +1474,41 @@
   // ---------- Пройденные места и маршруты ----------
   const visited = new Set(readJson('visited', []));
   let routesDone = readJson('routes_done', []); // [{ id, title, ts }]
+  const asObj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  // В какой день отмечено место (номер дня по Москве) — для «Моего месяца». Отметки до этой версии — без дня
+  let visitDays = asObj(readJson('visit_days', {}));
+  // Оценка после посещения: 1 — понравилось, -1 — не моё. По ним подбор учится (см. tasteK)
+  let rates = asObj(readJson('rates', {}));
+  // Москва живёт по UTC+3 круглый год — день считаем без календарных библиотек
+  const mskDay = (t) => Math.floor(((t === undefined ? Date.now() : t) + 3 * 3600000) / 86400000);
+  // Облако Telegram хранит до 4096 символов в ключе: берём последние записи, пока влезают
+  const lastEntries = (obj, max) => Object.fromEntries(Object.entries(obj).slice(-max));
   function saveVisited() {
-    const v = JSON.stringify([...visited].slice(-300)), d = JSON.stringify(routesDone.slice(-50));
-    try { localStorage.setItem('visited', v); localStorage.setItem('routes_done', d); } catch (e) { /* хранилище недоступно */ }
-    if (supports('6.9')) { if (v.length < 4000) tg.CloudStorage.setItem('visited', v); if (d.length < 4000) tg.CloudStorage.setItem('routes_done', d); }
+    const days = Object.fromEntries(Object.entries(visitDays).sort((a, b) => a[1] - b[1]).slice(-150));
+    const data = { visited: [...visited].slice(-300), routes_done: routesDone.slice(-50), visit_days: days, rates: lastEntries(rates, 180) };
+    for (const [k, val] of Object.entries(data)) {
+      const s = JSON.stringify(val);
+      try { localStorage.setItem(k, s); } catch (e) { /* хранилище недоступно */ }
+      if (supports('6.9') && s.length < 4000) tg.CloudStorage.setItem(k, s);
+    }
+  }
+
+  function setRate(id, v) {
+    const was = rates[id];
+    delete rates[id]; // новая оценка — в конец списка (при обрезке по размеру старые уйдут первыми)
+    if (was !== v) rates[id] = v;
+    tasteMap = null;
+    saveVisited();
+    haptic.impact(v === 1 ? 'medium' : 'light');
+    if (was === v) toast('Оценка убрана');
+    else if (v === 1) toast('Учту — похожие места будут выше в подборе', '👍');
+    else toast('Понял — это место больше не предложу, похожие — ниже', '👎');
   }
 
   function toggleVisited(id) {
     const before = awardsGot(awardStats());
-    if (visited.has(id)) visited.delete(id); else visited.add(id);
+    if (visited.has(id)) { visited.delete(id); delete visitDays[id]; if (rates[id]) { delete rates[id]; tasteMap = null; } }
+    else { visited.add(id); visitDays[id] = mskDay(); }
     haptic.tap();
     const r = activeRoute;
     let routeDone = false;
@@ -1545,7 +1596,74 @@
         <button class="btn btn-primary" type="button" data-raction="go">Идти — Яндекс Карты</button>
         ${r.shared || r.gen ? '<button class="btn btn-secondary" type="button" data-raction="keep">Сохранить</button>' : ''}
       </div>
-      ${r.gen ? `<button class="btn btn-secondary btn-wide" type="button" data-raction="regen">${icon('dice')} Ещё вариант</button>` : ''}`;
+      ${r.gen ? `<button class="btn btn-secondary btn-wide" type="button" data-raction="regen">${icon('dice')} Ещё вариант</button>` : ''}
+      <div class="route-more">
+        <button class="btn btn-surface" type="button" data-raction="cal">${emo('🗓')} В календарь</button>
+        ${STORY_TG ? `<button class="btn btn-surface" type="button" data-raction="story">${emo('📸')} В историю</button>` : ''}
+      </div>
+      ${inTelegram ? '' : `<div class="cal-opts" hidden>
+        <button type="button" data-raction="cal-google">Google Календарь</button>
+        <button type="button" data-raction="cal-ics">Файл .ics — Apple, Яндекс, Outlook</button>
+      </div>`}`;
+  }
+
+  // ---------- План в календарь ----------
+  // Событие: начало — когда выходишь (ползунок «Выхожу»), конец — через всё время маршрута;
+  // в описании — места со временем прихода и ссылка на маршрут в Яндекс Картах
+  function calEvent(r) {
+    const ps = routePlaces(r.ids);
+    const st = routeStats(ps, r.fromMe, r), tl = routeTimeline(r, ps);
+    const start = new Date(Math.round((Date.now() + (r.startIn || 0) * 60000) / 60000) * 60000);
+    const end = new Date(start.getTime() + st.total * 60000);
+    const at = (p) => p.name + (p.address ? ', ' + p.address : '');
+    const ready = READY_ROUTES.some((x) => x.id === r.id);
+    const details = ps.map((p, i) => `${tl[i].arrive} — ${at(p)}`)
+      .concat(['', 'Маршрут в Яндекс Картах: ' + routeGoUrl(ps, r.fromMe), `${cfg.APP_NAME}: https://t.me/${cfg.BOT_USERNAME}`]).join('\n');
+    return { title: `${cfg.APP_NAME}: ${ready ? r.title : ps.map((p) => p.name).join(' → ')}`, start, end, location: at(ps[0]), details };
+  }
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const utcStamp = (d) => `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}T${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}00Z`;
+  function googleCalUrl(ev) {
+    const q = (s) => encodeURIComponent(s);
+    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${q(ev.title)}&dates=${utcStamp(ev.start)}/${utcStamp(ev.end)}&details=${q(ev.details)}&location=${q(ev.location)}&ctz=Europe%2FMoscow`;
+  }
+  // Файл календаря по стандарту iCalendar (RFC 5545): строки длиннее 75 байт переносятся с пробелом в начале
+  function icsText(ev) {
+    const escI = (s) => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+    const enc = new TextEncoder();
+    const fold = (line) => {
+      let out = '', n = 0;
+      for (const ch of line) {
+        const b = enc.encode(ch).length;
+        if (n + b > 74) { out += '\r\n '; n = 1; }
+        out += ch; n += b;
+      }
+      return out;
+    };
+    return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Kuda poyti//RU', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
+      `UID:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}@kuda-poyti`, `DTSTAMP:${utcStamp(new Date())}`,
+      `DTSTART:${utcStamp(ev.start)}`, `DTEND:${utcStamp(ev.end)}`, `SUMMARY:${escI(ev.title)}`, `LOCATION:${escI(ev.location)}`,
+      `DESCRIPTION:${escI(ev.details)}`, 'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escI(ev.title)}`, 'TRIGGER:-PT30M', 'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR'].map(fold).join('\r\n') + '\r\n';
+  }
+  function downloadIcs(ev) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([icsText(ev)], { type: 'text/calendar;charset=utf-8' }));
+    a.download = 'kuda-poyti.ics';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  // В Telegram файл скачать нельзя (только по https-ссылке) — сразу Google Календарь; в браузере — выбор
+  function addToCalendar(r, how) {
+    haptic.impact();
+    const ev = calEvent(r);
+    if (how === 'ics') { downloadIcs(ev); toast('Файл календаря скачан — открой его, и событие добавится', '🗓'); }
+    else openLink(googleCalUrl(ev));
+  }
+  function routeStoryText(r) {
+    const ps = routePlaces(r.ids);
+    return `Мой маршрут по Москве: ${ps.map((p) => p.name).join(' → ')} (${durText(routeStats(ps, null, r).total).replace('~', '≈ ')})`;
   }
 
   function closeRoute() {
@@ -1672,12 +1790,12 @@
     return typeIndex[type] || [];
   }
 
-  // Насколько место хорошее само по себе: оценки в Яндексе, их число; где уже был — реже
-  // Оценка места: число и средняя оценка в Яндексе, профиль человека (интересы, кухни, что утомляет);
-  // где уже был — ниже. prefer — поправки конкретного подбора (с кем, погода)
+  // Оценка места: число и средняя оценка в Яндексе, профиль человека (интересы, кухни, что утомляет),
+  // его оценки похожих мест; где уже был — ниже (если там понравилось — не так сильно).
+  // prefer — поправки конкретного подбора (с кем, погода)
   function placeQuality(p, prefer) {
-    let q = Math.sqrt(p.pop || 30) * (p.rating >= 4.8 ? 1.3 : p.rating >= 4.6 ? 1.1 : 1) * profileK(p);
-    if (visited.has(p.id)) q *= 0.5;
+    let q = Math.sqrt(p.pop || 30) * (p.rating >= 4.8 ? 1.3 : p.rating >= 4.6 ? 1.1 : 1) * profileK(p) * tasteK(p);
+    if (visited.has(p.id)) q *= rates[p.id] === 1 ? 0.8 : 0.5;
     return prefer ? q * prefer(p) : q;
   }
 
@@ -1709,7 +1827,7 @@
     for (const p of placesOfType(type)) {
       // сначала дешёвая проверка «не дальше ~3,3 км» по координатам — точное расстояние только для ближних
       if (Math.abs(p.lat - cur.lat) > 0.03 || Math.abs(p.lon - cur.lon) > 0.053) continue;
-      if (o.exclude.has(p.id) || o.chains.has(chainKey(p))) continue;
+      if (o.exclude.has(p.id) || o.chains.has(chainKey(p)) || disliked(p)) continue;
       if (p.cat === 'night' && (!adultOk || o.noNight)) continue;
       if (p.rating && p.rating < 4.4) continue;
       if (o.newOnly && visited.has(p.id)) continue;
@@ -2444,12 +2562,16 @@
       const fc = favCuisine(p); // любимая кухня из профиля
       if (fc) out.push(`Твоя кухня: ${(p.cuisine || []).find((x) => CUISINE_RE[fc].test(norm(x))) || 'из профиля'}`);
     }
+    // по твоим оценкам: здесь понравилось — или похоже на место, которое понравилось
+    if (rates[p.id] === 1) out.push('Тебе здесь понравилось');
+    else { const like = likedLike(p); if (like) out.push(`Как «${shortName(like.name)}» — тебе понравилось`); }
     const left = Hours.minutesLeft(p.hours, arrive);
     if (left === Infinity) out.push('Круглосуточно');
     else if (left) { const c = clock(new Date(arrive.getTime() + left * 60000)); out.push(c === '00:00' ? 'Открыто до полуночи' : `Открыто до ${c}`); }
     if (today.ans.who === 'kids' && kidsPlace(p)) out.push('Для детей');
     if (today.ans.who === 'date' && collSet('date').has(p.id)) out.push('Из подборки «На свидание»');
     else if (collSet('views').has(p.id)) out.push('Из подборки «Лучшие виды»');
+    else if (collSet('season').has(p.id)) out.push(`Из подборки «${COLLECTIONS.find((c) => c.id === 'season').title}»`);
     if (bad && (isIndoor(p) || p.setting === 'indoor')) out.push('Под крышей');
     if (p.free) out.push('Бесплатно');
     if (visited.size && !visited.has(p.id)) out.push('Новое для тебя');
@@ -2522,7 +2644,7 @@
       ${notes}
       ${ps.length
         ? `<div class="section-title">Лучшие варианты <small>${area}</small></div>
-           <p class="today-basis">Каждое место оценено по ${profile ? 'твоему профилю, ' : ''}ответам, оценкам в Яндекс Картах, часам работы к твоему приходу, бюджету, расстоянию и погоде. Первое — с лучшей суммой.${profile ? '' : ' <button type="button" class="link-btn" data-today="profile">Настроить рекомендации</button>'}</p>
+           <p class="today-basis">Каждое место оценено по ${profile ? 'твоему профилю, ' : ''}${taste().size ? 'твоим оценкам мест, где ты был, ' : ''}ответам, оценкам в Яндекс Картах, часам работы к твоему приходу, бюджету, расстоянию и погоде. Первое — с лучшей суммой.${profile ? '' : ' <button type="button" class="link-btn" data-today="profile">Настроить рекомендации</button>'}</p>
            <div class="picks">${ps.map((p, i) => pickCardHtml(p, i, arrive(p), bad)).join('')}</div>
            <div class="draft-links"><button type="button" data-today="more">Другие варианты</button><button type="button" data-today="restart">Ответить заново</button></div>
            ${planHtml()}`
@@ -2548,7 +2670,7 @@
     const wx = weatherAt(startAt), bad = !!(wx && wx.bad);
     const prefer = todayPrefer(bad);
     const fits = (p) => {
-      if (!mood.cats.includes(p.cat) || (p.cat === 'night' && (!adultOk || a.who === 'kids'))) return false;
+      if (!mood.cats.includes(p.cat) || (p.cat === 'night' && (!adultOk || a.who === 'kids')) || disliked(p)) return false;
       if (p.rating && p.rating < 4.4) return false;
       if (a.budget !== null) { const m = minPrice(p); if (m === null || m > a.budget) return false; }
       if (bad && a.mood === 'any' && (isOutdoor(p) || p.setting === 'both')) return false; // «Удиви меня» в непогоду — только под крышей
@@ -2751,10 +2873,11 @@
   ];
   const awardsShown = () => AWARDS.filter((a) => !a.adult || adultOk);
 
-  function awardStats() {
-    const s = { places: 0, districts: 0, center: 0, routes: new Set(routesDone.map((d) => d.id)).size, coffee: 0, food: 0, museum: 0, photo: 0, mall: 0, night: 0 };
+  // ids и done — какие отметки считать (по умолчанию все); для «Моего месяца» — только до нужного дня
+  function awardStats(ids, done) {
+    const s = { places: 0, districts: 0, center: 0, routes: new Set((done || routesDone).map((d) => d.id)).size, coffee: 0, food: 0, museum: 0, photo: 0, mall: 0, night: 0 };
     const ds = new Set();
-    for (const id of visited) {
+    for (const id of ids || visited) {
       const p = byId.get(id);
       if (!p) continue;
       s.places++;
@@ -2780,15 +2903,108 @@
     $('#open-awards').classList.toggle('has-favs', n > 0);
   }
 
+  // ---------- «Мой месяц»: итоги по отметкам с датой ----------
+  const MONTH_NOM = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+  const MONTH_PREP = ['январе', 'феврале', 'марте', 'апреле', 'мае', 'июне', 'июле', 'августе', 'сентябре', 'октябре', 'ноябре', 'декабре'];
+  const CAT_MANY = { coffee: 'кофейни', food: 'места с едой', museum: 'музеи', photo: 'красивые места', mall: 'ТЦ и фудкорты', night: 'бары' };
+  // Месяц по номеру дня: дни [start, end)
+  function monthOf(day) {
+    const d = new Date(day * 86400000), y = d.getUTCFullYear(), m = d.getUTCMonth();
+    return { m, key: y * 12 + m, start: Date.UTC(y, m, 1) / 86400000, end: Date.UTC(y, m + 1, 1) / 86400000 };
+  }
+  const doneDay = (r) => mskDay(r.ts);
+  function monthStats(mo) {
+    const inMonth = (d) => d >= mo.start && d < mo.end;
+    const ps = Object.keys(visitDays).filter((id) => visited.has(id) && inMonth(visitDays[id])).map((id) => byId.get(id)).filter(Boolean);
+    const count = (list) => { const c = new Map(); list.forEach((x) => c.set(x, (c.get(x) || 0) + 1)); return [...c].sort((a, b) => b[1] - a[1])[0] || null; };
+    const topCat = count(ps.map((p) => p.cat));
+    const topCuisine = count(ps.filter((p) => p.cat === 'food').flatMap((p) => p.cuisine || []));
+    const districts = new Set(ps.map((p) => p.district).filter(Boolean));
+    // новые районы — где раньше отметок не было (отметки без даты — старые, из прошлых версий)
+    const upTo = (lim) => [...visited].filter((id) => !(id in visitDays) || visitDays[id] < lim);
+    const earlier = new Set(upTo(mo.start).map((id) => byId.get(id)).filter(Boolean).map((p) => p.district));
+    const doneTo = (lim) => routesDone.filter((r) => doneDay(r) < lim);
+    const got0 = awardsGot(awardStats(upTo(mo.start), doneTo(mo.start))), got1 = awardsGot(awardStats(upTo(mo.end), doneTo(mo.end)));
+    return {
+      places: ps.length, districts: districts.size, routes: routesDone.filter((r) => inMonth(doneDay(r))).length,
+      topCat: topCat && topCat[1] >= 2 ? topCat : null, topCuisine: topCuisine && topCuisine[1] >= 2 ? topCuisine : null,
+      newDistricts: [...districts].filter((d) => !earlier.has(d)),
+      liked: ps.filter((p) => rates[p.id] === 1).length, rated: ps.filter((p) => rates[p.id]).length,
+      awards: awardsShown().filter((a) => got1.has(a.id) && !got0.has(a.id)),
+    };
+  }
+  let monthSel = null; // какой месяц смотрим; null — по умолчанию
+  // Месяцы с отметками: текущий и до двух прошлых. В первую неделю месяца сначала показываем итоги прошлого
+  function monthList() {
+    const cur = monthOf(mskDay()), out = [cur];
+    let mo = cur;
+    for (let i = 0; i < 2; i++) {
+      mo = monthOf(mo.start - 1);
+      const s = monthStats(mo);
+      if (s.places || s.routes) out.push(mo); else break;
+    }
+    return out;
+  }
+  function monthHtml() {
+    const list = monthList(), today0 = mskDay();
+    const def = list[1] && today0 - list[0].start < 7 ? list[1] : list[0];
+    const mo = list.find((x) => x.key === monthSel) || def;
+    const s = monthStats(mo), isCur = mo.key === list[0].key;
+    const tabs = list.length > 1 ? `<div class="seg month-tabs">${list.slice().reverse().map((x) => `<button type="button" class="seg-btn${x.key === mo.key ? ' active' : ''}" data-month="${x.key}">${MONTH_NOM[x.m][0].toUpperCase() + MONTH_NOM[x.m].slice(1)}</button>`).join('')}</div>` : '';
+    const head = `<div class="month-head"><b>${emo('🗓')} Мой ${MONTH_NOM[mo.m]}</b>${isCur ? '<small>итоги собираются</small>' : ''}</div>`;
+    if (!s.places && !s.routes) {
+      return `<div class="month">${head}${tabs}<p class="month-empty">В ${MONTH_PREP[mo.m]} пока ничего не отмечено. Отмечай места, в которых побываешь, — здесь соберутся итоги месяца: сколько мест и районов, что чаще всего, новые значки.</p></div>`;
+    }
+    const facts = [];
+    if (s.topCat) facts.push(`Чаще всего — ${CAT_MANY[s.topCat[0]]}: ${s.topCat[1]}`);
+    if (s.topCuisine) facts.push(`Любимая кухня — ${s.topCuisine[0].toLowerCase()}`);
+    if (s.newDistricts.length) facts.push(`Новые районы: ${s.newDistricts.slice(0, 3).join(', ')}${s.newDistricts.length > 3 ? ` и ещё ${s.newDistricts.length - 3}` : ''}`);
+    if (s.rated) facts.push(`Понравилось ${s.liked} из ${s.rated} оценённых`);
+    const aw = s.awards.length ? `<div class="month-awards">${s.awards.map((a) => `<span>${emo(a.e)} ${a.title}</span>`).join('')}</div>` : '';
+    return `<div class="month">${head}${tabs}
+      <div class="aw-stats">
+        <div class="aw-stat"><b>${s.places}</b><small>${plural(s.places, 'место', 'места', 'мест')}</small></div>
+        <div class="aw-stat"><b>${s.districts}</b><small>${plural(s.districts, 'район', 'района', 'районов')}</small></div>
+        <div class="aw-stat"><b>${s.routes}</b><small>${plural(s.routes, 'маршрут', 'маршрута', 'маршрутов')}</small></div>
+      </div>
+      ${facts.length ? `<ul class="month-facts">${facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
+      ${aw ? `<div class="f-label">Новые значки</div>${aw}` : ''}
+      ${STORY_TG ? `<button class="btn btn-secondary btn-wide" type="button" data-awards="story-month" data-key="${mo.key}">${emo('📸')} Поделиться в истории</button>` : ''}
+    </div>`;
+  }
+  function monthStoryText(key) {
+    const mo = monthList().find((x) => x.key === key);
+    if (!mo) return null;
+    const s = monthStats(mo);
+    const parts = [`${s.places} ${plural(s.places, 'место', 'места', 'мест')}`, `${s.districts} ${plural(s.districts, 'район', 'района', 'районов')}`];
+    if (s.routes) parts.push(`${s.routes} ${plural(s.routes, 'маршрут', 'маршрута', 'маршрутов')}`);
+    return `Мой ${MONTH_NOM[mo.m]} в Москве: ${parts.join(', ')}${s.topCat ? `. Чаще всего — ${CAT_MANY[s.topCat[0]]}` : ''}`;
+  }
+
+  // ---------- Истории Telegram ----------
+  // Картинка — готовая, с сайта (img/story/*.jpg: Telegram берёт её по ссылке), подробности — в подписи.
+  // Выложить историю можно только из Telegram на телефоне (версия 7.8+) — в других местах кнопки нет
+  const STORY_TG = supports('7.8') && /^(ios|android|android_x)$/.test(tg.platform) && typeof tg.shareToStory === 'function';
+  function shareStory(img, text) {
+    const url = new URL(`img/story/${img}.jpg?v=${encodeURIComponent(window.APP_VERSION || '')}`, location.href).href;
+    const tail = ` · @${cfg.BOT_USERNAME}`; // в подписи без Premium — до 200 знаков
+    const body = text.length + tail.length > 200 ? text.slice(0, 199 - tail.length).trim() + '…' : text;
+    haptic.impact();
+    try { tg.shareToStory(url, { text: body + tail }); } catch (e) { toast('Не получилось открыть редактор историй'); }
+  }
+
   function awardsHtml() {
     const s = awardStats(), got = awardsGot(s), list = awardsShown();
     const total = totalDistricts();
     const bar = (v, max) => `<div class="aw-bar"><i style="width:${Math.min(100, (v / max) * 100)}%"></i></div>`;
     const badges = list.map((a) => {
       const on = got.has(a.id), v = Math.min(s[a.of] || 0, a.need);
-      return `<div class="award${on ? ' award--on' : ''}">${emo(a.e, 'award-e')}<b>${a.title}</b>
-        <small>${on ? 'Получено' : a.text}</small>${on || a.need === 1 ? '' : `<div class="aw-mini">${bar(v, a.need)}<em>${v}/${a.need}</em></div>`}</div>`;
+      // полученный значок можно выложить в историю — тогда он кнопка
+      const tag = on && STORY_TG ? 'button' : 'div';
+      return `<${tag} class="award${on ? ' award--on' : ''}"${tag === 'button' ? ` type="button" data-award-story="${a.id}"` : ''}>${emo(a.e, 'award-e')}<b>${a.title}</b>
+        <small>${on ? (STORY_TG ? 'В историю ›' : 'Получено') : a.text}</small>${on || a.need === 1 ? '' : `<div class="aw-mini">${bar(v, a.need)}<em>${v}/${a.need}</em></div>`}</${tag}>`;
     }).join('');
+    const nr = Object.values(rates), likes = nr.filter((v) => v === 1).length;
     const been = [...visited].reverse().map((id) => byId.get(id)).filter(Boolean);
     return `<div class="sheet-handle"></div>
       <div class="place-head">
@@ -2798,8 +3014,11 @@
       <div class="prof-card">
         <b>Рекомендации</b>
         <small>${profile ? esc(profileSummary()) : 'Ответь на 6 коротких вопросов — подбор будет учитывать твои интересы, любимые кухни, бюджет и то, что тебя утомляет.'}</small>
+        ${nr.length ? `<small class="prof-rates">${emo('👍')} ${likes} · ${emo('👎')} ${nr.length - likes} — оценки мест тоже учитываются: похожее на то, что понравилось, — выше, «не моё» больше не предлагаю</small>` : ''}
         <button class="btn btn-secondary btn-wide" type="button" data-awards="profile">${profile ? 'Изменить ответы' : 'Настроить рекомендации'}</button>
       </div>
+      ${monthHtml()}
+      <div class="section-title">За всё время</div>
       <div class="aw-stats">
         <div class="aw-stat"><b>${s.places}</b><small>${plural(s.places, 'место', 'места', 'мест')}</small></div>
         <div class="aw-stat"><b>${s.districts}</b><small>${plural(s.districts, 'район', 'района', 'районов')}</small></div>
@@ -2808,6 +3027,7 @@
       ${total ? `<div class="aw-progress"><div class="f-label budget-head">Открыто районов Москвы <b>${s.districts} из ${total}</b></div>${bar(s.districts, total)}</div>` : ''}
       <div class="section-title">Значки <small>${got.size} из ${list.length}</small></div>
       <div class="awards">${badges}</div>
+      ${rateListHtml()}
       <div class="section-title">Посещённые места${been.length ? ` <small>${been.length}</small>` : ''}</div>
       ${been.length
         ? `<div class="rows">${been.slice(0, 60).map((p) => rowHtml(p, null, p.district || p.address)).join('')}</div>`
@@ -2822,8 +3042,16 @@
       <p class="f-note credits">Значки эмодзи — Twemoji (© Twitter, Inc. и другие авторы), лицензия CC BY 4.0. Фото мест — Wikimedia Commons, автор и лицензия указаны у каждого фото.</p>`;
   }
 
+  // Перерисовать профиль на том же месте прокрутки (после оценки, смены месяца)
+  function rerenderAwards() {
+    const sh = $('#awards-sheet'), top = sh.scrollTop;
+    sh.innerHTML = awardsHtml();
+    sh.scrollTop = top;
+  }
+
   function openAwards() {
     haptic.tap();
+    monthSel = null;
     $('#awards-sheet').innerHTML = awardsHtml();
     openSheet('awards');
   }
@@ -2839,6 +3067,26 @@
   function visitButtonHtml(p) {
     const on = visited.has(p.id);
     return `<button class="tag tag--btn${on ? ' tag--open' : ''}" type="button" data-action="visit" aria-pressed="${on}">${on ? '✓ Посещено' : '＋ Отметить посещение'}</button>`;
+  }
+
+  // «Как тебе?» — появляется, когда место отмечено. attr — data-атрибут кнопок (в карточке места и в профиле разные)
+  function rateButtons(p, attr) {
+    const r = rates[p.id];
+    const b = (v, e, label) => `<button type="button" class="rate-btn${r === v ? ' is-on' : ''}" ${attr}="${v}" aria-pressed="${r === v}"${label ? '' : ` aria-label="${v === 1 ? 'Понравилось' : 'Не моё'}"`}>${emo(e)}${label ? ' ' + label : ''}</button>`;
+    return { like: b(1, '👍', attr === 'data-rate' ? 'Понравилось' : ''), dislike: b(-1, '👎', attr === 'data-rate' ? 'Не моё' : '') };
+  }
+  function rateHtml(p) {
+    if (!visited.has(p.id)) return '';
+    const b = rateButtons(p, 'data-rate');
+    return `<div class="rate"><span>Как тебе?</span>${b.like}${b.dislike}</div>`;
+  }
+  // В профиле: отмеченные места без оценки — оценить в одно касание
+  function rateListHtml() {
+    const list = [...visited].reverse().map((id) => byId.get(id)).filter((p) => p && !rates[p.id]).slice(0, 5);
+    if (!list.length) return '';
+    return `<div class="section-title">Оцени отмеченные места <small>подбор учтёт</small></div>
+      <div class="rate-list">${list.map((p) => { const b = rateButtons(p, 'data-rate-v'); return `<div class="rate-row" data-rate-id="${esc(p.id)}">
+        <button type="button" class="rate-name" data-id="${esc(p.id)}"><b>${esc(p.name)}</b><small>${esc(catLabel(p))}${p.district ? ' · ' + esc(p.district) : ''}</small></button>${b.like}${b.dislike}</div>`; }).join('')}</div>`;
   }
 
   // ---------- Документы и согласие ----------
@@ -2920,7 +3168,7 @@
   }
 
   // Отзыв согласия: удаляем всё, что приложение хранит о человеке, — на телефоне и в облаке Telegram
-  const USER_KEYS = ['favs', 'age18', 'theme', 'route_draft', 'routes_saved', 'routes_liked', 'visited', 'routes_done', 'onboarded', 'legal', 'profile', 'profile_skip'];
+  const USER_KEYS = ['favs', 'age18', 'theme', 'route_draft', 'routes_saved', 'routes_liked', 'visited', 'routes_done', 'visit_days', 'rates', 'onboarded', 'legal', 'profile', 'profile_skip'];
   function withdrawConsent() {
     const go = () => {
       try { USER_KEYS.concat(['legal_at', 'gen', 'weather', 'lite']).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* хранилище недоступно */ }
@@ -3046,6 +3294,71 @@
     if (favCuisine(p)) k *= 1.4;                                                       // любимая кухня
     return k;
   }
+
+  // ---------- Чему подбор научился по оценкам «Понравилось / Не моё» ----------
+  // У места — признаки из данных Яндекса: сеть (одинаковое название), кухни, тип (парк, вид, фастфуд…),
+  // уровень цен, категория, «улица или помещение». По оценкам для каждого признака считаем
+  // «понравилось − не моё», и место получает множитель за общие признаки. Чем конкретнее признак
+  // (сеть, кухня), тем сильнее он влияет; категория и «улица/помещение» — чуть-чуть
+  const TASTE_W = { n: 0.5, k: 0.25, t: 0.2, $: 0.15, c: 0.1, s: 0.08 };
+  const featCache = new Map();
+  function placeFeatures(p) {
+    let f = featCache.get(p.id);
+    if (f) return f;
+    const t = placeText(p);
+    f = ['c:' + p.cat, 'n:' + chainKey(p)];
+    if (p.setting) f.push('s:' + p.setting);
+    for (const c of p.cuisine || []) f.push('k:' + norm(c));
+    if (p.cat === 'food' && (p.kind === 'food_court' || FAST_RE.test(t))) f.push('t:fast');
+    if (p.cat === 'photo') for (const v of ['parks', 'views', 'sights']) if (interestMatch(p, v)) f.push('t:' + v);
+    if (p.cat === 'coffee' && /кондитерск|пекарн|десерт/.test(t)) f.push('t:sweet');
+    if (kidsPlace(p)) f.push('t:kids');
+    const r = priceRange(p);
+    if (r && r[1] > 0) { const m = (r[0] + r[1]) / 2; f.push('$:' + (m >= 2500 ? 'hi' : m >= 1000 ? 'mid' : 'lo')); }
+    featCache.set(p.id, f);
+    return f;
+  }
+  let tasteMap = null; // признак → «понравилось − не моё»; null — пересчитать при следующем подборе
+  function taste() {
+    if (tasteMap) return tasteMap;
+    tasteMap = new Map();
+    for (const [id, v] of Object.entries(rates)) {
+      const p = byId.get(id);
+      if (p) for (const f of placeFeatures(p)) tasteMap.set(f, (tasteMap.get(f) || 0) + v);
+    }
+    return tasteMap;
+  }
+  // Множитель к оценке места по твоим оценкам (оценок нет — 1). Один признак сдвигает не больше чем
+  // на свой вес (две оценки в одну сторону — уже предел), всё вместе — от 0,3 до 2,2.
+  // Сеть — отдельно: «не моё» в одной точке — и другие точки этой сети заметно ниже (×0,4)
+  function tasteK(p) {
+    const m = taste();
+    if (!m.size) return 1;
+    let k = 1;
+    for (const f of placeFeatures(p)) {
+      const v = m.get(f);
+      if (!v) continue;
+      if (f[0] === 'n') k *= v < 0 ? 0.4 : 1.25;
+      else k *= 1 + (TASTE_W[f[0]] * Math.max(-2, Math.min(2, v))) / 2;
+    }
+    return Math.max(0.3, Math.min(2.2, k));
+  }
+  // «Не моё» — такое место больше не предлагаем (на карте и в поиске оно остаётся)
+  const disliked = (p) => rates[p.id] === -1;
+  // На какое понравившееся место похоже: та же сеть, кухня или тип — для объяснения «почему это место»
+  function likedLike(p) {
+    const mine = new Set(placeFeatures(p).filter((f) => 'nkt'.includes(f[0])));
+    let best = null, bw = 0;
+    for (const [id, v] of Object.entries(rates)) {
+      const q = v === 1 && id !== p.id && byId.get(id);
+      if (!q) continue;
+      let w = 0;
+      for (const f of placeFeatures(q)) if (mine.has(f)) w = Math.max(w, TASTE_W[f[0]]);
+      if (w > bw) { bw = w; best = q; }
+    }
+    return best;
+  }
+  const shortName = (s) => (s.length > 22 ? s.slice(0, 21).trim() + '…' : s);
 
   let prof = { step: 0, ans: {}, first: false };
 
@@ -3275,6 +3588,7 @@
     $('.legal-mark').innerHTML = emo('📍');
     ensureLegal(() => legalOk());
 
+    refreshSeasonColl();
     buildChips();
     buildFilters();
     $('#open-filters').addEventListener('click', () => { haptic.tap(); syncFilters(); openSheet('filters'); });
@@ -3311,6 +3625,18 @@
       if (e.target.closest('[data-awards="close"]')) { closeSheets(); return; }
       if (e.target.closest('[data-awards="profile"]')) { haptic.tap(); openProfile(false); return; }
       if (e.target.closest('[data-awards="withdraw"]')) { withdrawConsent(); return; }
+      const mon = e.target.closest('[data-month]');
+      if (mon) { monthSel = +mon.dataset.month; haptic.tap(); rerenderAwards(); return; }
+      const ms = e.target.closest('[data-awards="story-month"]');
+      if (ms) { const t = monthStoryText(+ms.dataset.key); if (t) shareStory('month', t); return; }
+      const as = e.target.closest('[data-award-story]');
+      if (as) {
+        const a = AWARDS.find((x) => x.id === as.dataset.awardStory);
+        if (a) shareStory('award-' + a.id, `Мой новый значок «${a.title.replace(/­/g, '')}» — ${a.text.toLowerCase()}. Ищу, куда пойти в Москве`);
+        return;
+      }
+      const rv = e.target.closest('[data-rate-v]');
+      if (rv) { setRate(rv.closest('[data-rate-id]').dataset.rateId, +rv.dataset.rateV); rerenderAwards(); return; }
       const row = e.target.closest('[data-id]');
       const p = row && byId.get(row.dataset.id);
       if (p) { haptic.tap(); openPlace(p, { focus: true }); placeBack = 'awards'; }
@@ -3421,6 +3747,13 @@
         else if (x === 'share') shareRoute(r);
         else if (x === 'go') { haptic.impact(); openLink(routeGoUrl(routePlaces(r.ids), r.fromMe)); }
         else if (x === 'like') { toggleRouteLike(r.id); renderRouteSheet(); }
+        else if (x === 'cal') {
+          if (inTelegram) addToCalendar(r, 'google');
+          else { const o = $('#route-sheet .cal-opts'); o.hidden = !o.hidden; haptic.tap(); if (!o.hidden) o.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+        }
+        else if (x === 'cal-google') addToCalendar(r, 'google');
+        else if (x === 'cal-ics') addToCalendar(r, 'ics');
+        else if (x === 'story') shareStory('route', routeStoryText(r));
         else if (x === 'regen') { if (r.regen === 'today' && today.picks) { buildTodayPlan(true); todayRoute(); } else generateRoute(true); }
         else if (x === 'from-me') {
           if (r.fromMe) { r.fromMe = null; drawRouteLine(); renderRouteSheet(); return; }
@@ -3466,6 +3799,8 @@
     $('#backdrop').addEventListener('click', () => closeSheets());
     $('#splash-retry').addEventListener('click', () => location.reload());
     $('#place-sheet').addEventListener('click', (e) => {
+      const rb = e.target.closest('[data-rate]');
+      if (rb && state.selected) { setRate(state.selected.id, +rb.dataset.rate); $('#place-sheet .rate-slot').innerHTML = rateHtml(state.selected); return; }
       const a = e.target.closest('[data-action]');
       if (!a) return;
       e.preventDefault();
@@ -3479,7 +3814,9 @@
         const on = !visited.has(p.id);
         const routeDone = toggleVisited(p.id);
         a.outerHTML = visitButtonHtml(p);
-        if (on && !routeDone) toast('Отмечено! Все места — в «Достижениях»', '🏆');
+        const slot = $('#place-sheet .rate-slot');
+        if (slot) slot.innerHTML = rateHtml(p);
+        if (on && !routeDone) toast('Отмечено! Оцени ниже — подбор учтёт', '🏆');
       }
       else if (a.dataset.action === 'route' && p) { haptic.impact(); openLink(routeUrl(p)); }
       else if (a.dataset.action === 'site') openLink(a.dataset.url);
@@ -3517,6 +3854,8 @@
     // Ссылка от друга (startapp=p-<id>) — сразу открываем это место.
     // Кнопка «🎲 Мне повезёт» в боте открывает приложение с ?lucky=1 — сразу выбираем место
     const districtsReady = loadDistrictPlaces().then(() => {
+      tasteMap = null; // оценки мест по районам теперь тоже учитываются
+      refreshSeasonColl();
       render(); syncFilters(); updateFavButton(); updateDraftBadge(); updateAwardBadge(); warmSearchIndex();
       // время и цену готовых маршрутов считаем заранее, в паузе, — «Маршруты» открываются быстрее
       (window.requestIdleCallback || setTimeout)(() => READY_ROUTES.forEach((r) => { const ps = routePlaces(r.ids); if (ps.length > 1) routeStats(ps, null, r); }));
