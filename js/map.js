@@ -507,12 +507,14 @@
     get canvasMarkers() { return !!(this.impl && this.impl.canvasMarkers); },
     view() { return this.impl.view(); },
     onMove(cb) { this.impl.onMove(cb); },
-    setMarkers(items) { this.impl.setMarkers(items); },
-    flyTo(lat, lon, zoom) { this.impl.flyTo(lat, lon, zoom); },
-    setUser(lat, lon, el) { this.impl.setUser(lat, lon, el); },
-    setDark(dark) { this.impl.setDark(dark); },
-    setMinZoom(z) { this.impl.setMinZoom(z); },
-    setBounds(b) { this.impl.setBounds(b); },
-    setLine(coords) { try { this.impl.setLine(coords); } catch (e) { console.warn('Линия маршрута:', e); } },
+    // Карта ещё грузится (или переключается на запасную), а место уже открыли из поиска —
+    // команды карте просто пропускаем: когда она появится, всё нарисуется заново
+    setMarkers(items) { if (this.impl) this.impl.setMarkers(items); },
+    flyTo(lat, lon, zoom) { if (this.impl) this.impl.flyTo(lat, lon, zoom); },
+    setUser(lat, lon, el) { if (this.impl) this.impl.setUser(lat, lon, el); },
+    setDark(dark) { if (this.impl) this.impl.setDark(dark); },
+    setMinZoom(z) { if (this.impl) this.impl.setMinZoom(z); },
+    setBounds(b) { if (this.impl) this.impl.setBounds(b); },
+    setLine(coords) { if (!this.impl) return; try { this.impl.setLine(coords); } catch (e) { console.warn('Линия маршрута:', e); } },
   };
 })();

@@ -70,7 +70,7 @@
     return week;
   }
 
-  let formatter = null;
+  const MSK_OFFSET = 3 * 3600000;
   // Текущее московское время пересчитываем не чаще раза в 20 секунд: при тысячах мест на карте
   // это заметно ускоряет фильтр «Открыто сейчас»
   let nowCache = null, nowCacheAt = 0;
@@ -85,13 +85,10 @@
     const key = Math.floor(date.getTime() / 60000);
     const hit = minuteCache.get(key);
     if (hit) return hit;
-    formatter = formatter || new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Europe/Moscow', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-    });
-    const parts = {};
-    for (const p of formatter.formatToParts(date)) parts[p.type] = p.value;
-    const day = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(parts.weekday);
-    const res = { day, minutes: (+parts.hour % 24) * 60 + +parts.minute };
+    // Москва — UTC+3 круглый год (без перехода на летнее время с 2014): простая арифметика вместо Intl
+    // с часовым поясом — его первое создание на слабом телефоне стоит десятки миллисекунд
+    const m = new Date(date.getTime() + MSK_OFFSET);
+    const res = { day: (m.getUTCDay() + 6) % 7, minutes: m.getUTCHours() * 60 + m.getUTCMinutes() }; // день: пн = 0 … вс = 6
     if (minuteCache.size > 3000) minuteCache.clear();
     minuteCache.set(key, res);
     return res;

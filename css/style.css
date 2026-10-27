@@ -707,6 +707,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 /* Шторка готовится к выезду (и пока уезжает): видима за краем экрана и на своём слое —
    содержимое нарисовано заранее, анимация только двигает готовую картинку (см. openSheet) */
 .sheet.sheet--prep { visibility: visible; will-change: transform; }
+/* Закрытая шторка не участвует в пересчёте стилей и раскладке (смена темы, поворот экрана, догрузка
+   шрифта не трогают её длинные списки). Браузер помнит её раскладку — показ снова быстрый */
+.sheet:not(.open):not(.sheet--prep) { content-visibility: hidden; }
 .sheet--tall { height: 82vh; }
 /* «Рядом»: пониже, чтобы над шторкой было видно тебя и места вокруг */
 .sheet--half { height: 58vh; }
@@ -1289,7 +1292,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .legal-row input { position: absolute; opacity: 0; pointer-events: none; }
 .legal-box { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin-top: 1px; border: 2px solid var(--line); border-radius: 7px; background: var(--surface); }
 .legal-row input:checked + .legal-box { border-color: var(--accent); background: var(--accent); }
-.legal-row input:checked + .legal-box::after { content: "✓"; color: #fff; font-size: 15px; font-weight: 800; line-height: 1; }
+/* галочка — рамкой, а не символом ✓ (его нет в шрифте — поиск системного шрифта давал паузу) */
+.legal-row input:checked + .legal-box::after { content: ""; width: 11px; height: 6px; margin-top: -3px; border: solid #fff; border-width: 0 0 2.5px 2.5px; transform: rotate(-45deg); }
 .legal-row input:focus-visible + .legal-box { outline: 2px solid var(--accent); outline-offset: 2px; }
 .legal-row a, .doc-links a { color: var(--accent-ink); font-weight: 800; text-decoration: none; }
 .legal-card .btn-wide { margin-top: 16px; }
@@ -1403,3 +1407,10 @@ button.award:active { transform: scale(0.96); }
 .coll--season:active { background: var(--accent-soft); opacity: 0.85; }
 .coll--season img.coll-emoji { width: 30px; height: 30px; margin-bottom: 0; }
 .coll--season small { color: var(--accent-ink); }
+
+/* Иконки вместо символов ✓ ★ ＋ (их нет в шрифте Nunito) */
+.ic-inline { width: 1.1em; height: 1.1em; margin-right: 3px; vertical-align: -0.2em; }
+.ic-star { width: 0.95em; height: 0.95em; margin-right: 2px; vertical-align: -0.1em; }
+.stop-check { display: grid; place-items: center; padding: 0; }
+.stop-check .ic { width: 17px; height: 17px; }
+.ya-star .ic { width: 21px; height: 21px; }

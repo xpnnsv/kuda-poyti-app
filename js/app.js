@@ -15,6 +15,7 @@
   const AGE_BADGE = '<span class="age-badge">18+</span>';
   // Иконка из набора в app.html (<symbol id="i-…">)
   const icon = (name, cls) => `<svg class="ic${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+  const STAR = icon('star', 'ic-star'); // звезда оценки — иконкой (символа ★ нет в шрифте)
   // Эмодзи — картинками Twemoji (img/emoji/<код>.svg): на любом телефоне они цветные и одинаковые
   // (иначе часть эмодзи — 🏛 🍽 ☀ — на некоторых телефонах выходит чёрным значком шрифта).
   // Обычная картинка <img>: браузер один раз превращает её в растр и дальше просто показывает —
@@ -92,7 +93,13 @@
   // Минимальная цена для фильтра «Бюджет»: «600–800 ₽» → 600, «от 499 ₽» → 499, «до 2000 ₽» → 2000.
   // null — цена неизвестна: такое место показываем при любом бюджете с пометкой «Средний чек неизвестен»,
   // но не в режиме «Только бесплатное» (мы не знаем, что там бесплатно).
+  const minCache = new WeakMap();
   function minPrice(p) {
+    let m = minCache.get(p);
+    if (m === undefined) minCache.set(p, (m = parseMinPrice(p)));
+    return m;
+  }
+  function parseMinPrice(p) {
     if (p.free || p.kind === 'mall') return 0;
     const s = p.bill || p.tickets || p.cup;
     if (s) {
@@ -385,7 +392,7 @@
     if (/кофейн|чайн/.test(s)) return 'coffee';
     if (/музей|галере|выставочн/.test(s)) return 'museum';
     if (/торговый центр|фудмолл|гастромаркет|фудкорт/.test(s)) return 'mall';
-    if (/парк|сквер|достопримечательн|смотров|набережн|памятник/.test(s)) return 'photo';
+    if (/(^|[^а-яё])парк(?!овк)|сквер|достопримечательн|смотров|набережн|памятник/.test(s)) return 'photo';
     if (/ресторан|кафе|бар|столов|пиццери|суши|бургер|быстрое питание|пекарн|кондитерск/.test(s)) return 'food';
     return fallback === 'all' ? 'food' : fallback;
   }
@@ -844,7 +851,7 @@
       ${insideHtml(p)}
       ${infoHtml(p, todayHours, site)}
       <button class="ya-link" data-action="yandex">
-        <span class="ya-star">★</span>
+        <span class="ya-star">${icon('star')}</span>
         <span class="ya-text">${p.rating
           ? `<b>${ratingText(p)}</b><small>Отзывы и фото — в Яндекс Картах</small>`
           : '<b>Оценка, отзывы и фото</b><small>Откроется в Яндекс Картах</small>'}</span>
@@ -859,7 +866,7 @@
 
   function draftButtonHtml(p) {
     const inDraft = draft.includes(p.id);
-    return `<button class="btn btn-secondary" data-action="add-route">${inDraft ? '✓ В маршруте' : `${icon('plus')} В маршрут`}</button>`;
+    return `<button class="btn btn-secondary" data-action="add-route">${inDraft ? `${icon('check')} В маршруте` : `${icon('plus')} В маршрут`}</button>`;
   }
 
   function openPlace(p, opts) {
@@ -869,13 +876,21 @@
     state.lucky = !!opts.lucky;
     $('#place-sheet').innerHTML = placeHtml(p);
     openSheet('place');
-    render();
+    afterSheet(() => {
+      if (state.selected !== p) return; // карточку уже закрыли или открыли другую
+      render(); // выделить метку
+      // Сдвигаем карту так, чтобы место было видно над карточкой
+      const current = state.view ? state.view.zoom : cfg.START_ZOOM;
+      const zoom = opts.lucky || opts.focus ? Math.max(current, 15) : current;
+      const degPerPx = (1.40625 * Math.cos((p.lat * Math.PI) / 180)) / Math.pow(2, zoom);
+      MapView.flyTo(p.lat - window.innerHeight * 0.2 * degPerPx, p.lon, zoom);
+    });
+  }
 
-    // Сдвигаем карту так, чтобы место было видно над карточкой
-    const current = state.view ? state.view.zoom : cfg.START_ZOOM;
-    const zoom = opts.lucky || opts.focus ? Math.max(current, 15) : current;
-    const degPerPx = (1.40625 * Math.cos((p.lat * Math.PI) / 180)) / Math.pow(2, zoom);
-    MapView.flyTo(p.lat - window.innerHeight * 0.2 * degPerPx, p.lon, zoom);
+  // Работа с картой после открытия шторки — отдельной задачей: шторка начинает выезжать сразу
+  // (анимацию ведёт видеокарта), а перестройка карты не задерживает касание и первый кадр
+  function afterSheet(fn) {
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(fn, 0)));
   }
 
   // Поиск места в Яндекс Картах рядом с его координатами — откроется карточка с оценкой, отзывами и фото
@@ -936,6 +951,16 @@
 
   // ---------- Списки мест (поиск, избранное) ----------
   const norm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е');
+  // Парк, сквер, сад, усадьба, заповедник — с начала слова: иначе «фасад» считался садом, а «парковка» — парком
+  // (текст уже в нижнем регистре и с «е» вместо «ё», см. norm)
+  const PARK_RE = /(^|[^а-я])(парк(?!овк)|сквер|сад|заповедник|усадьб)|лесопарк/;
+  // Бар, паб, кальянная — по целым словам: «бариста», «Барвиха», «барашек», «беш-бармак» — не бары,
+  // и «суши-бар» — это ресторан, а не бар
+  const BAR_RE = /(^|[^а-я])(бар[аеуы]?|баром|барах|паб|пабъ|спортбар|гастробар)(?![а-я])|кальян/;
+  const barPlace = (p) => { if (p.cat === 'night') return true; const t = placeText(p); return BAR_RE.test(t.includes('суши-бар') ? t.replace(/суши-бар/g, '') : t); };
+  const NOISE_RE = /караоке|(^|[^а-я])клуб(а|е|у|ы|ом)?(?![а-я])/;
+  // Улицы и достопримечательности: «площадь» — но не «площадка» (детская, смотровая — это не достопримечательность)
+  const SIGHTS_RE = /достопримечательн|улица|площад(ь|и|ью|ей|ям|ях)(?![а-я])|бульвар|набережн|мост|переул/;
 
   // Подсвечивает найденное слово в названии
   function highlight(name, q) {
@@ -951,7 +976,7 @@
     const sub = note || p.address;
     return `<button class="row" type="button" data-id="${esc(p.id)}">
       <span class="row-icon cat--${p.cat}">${icon(p.cat)}</span>
-      <span class="row-text"><b>${q ? highlight(p.name, q) : esc(p.name)}</b><small>${p.rating ? `<span class="row-rating">★ ${p.rating.toFixed(1).replace('.', ',')}</span> · ` : ''}${esc(catLabel(p))}${sub ? ' · ' + esc(sub) : ''}${state.budget !== null && priceUnknown(p) ? ' · <span class="row-unknown">чек неизвестен</span>' : ''}</small></span>
+      <span class="row-text"><b>${q ? highlight(p.name, q) : esc(p.name)}</b><small>${p.rating ? `<span class="row-rating">${STAR}${p.rating.toFixed(1).replace('.', ',')}</span> · ` : ''}${esc(catLabel(p))}${sub ? ' · ' + esc(sub) : ''}${state.budget !== null && priceUnknown(p) ? ' · <span class="row-unknown">чек неизвестен</span>' : ''}</small></span>
       ${st === 'unknown' ? '' : `<span class="row-state row-state--${st}">${st === 'open' ? 'Открыто' : 'Закрыто'}</span>`}
     </button>`;
   }
@@ -964,10 +989,10 @@
   // Собирается сама из мест на карте — по рубрикам и описаниям из Яндекс Карт, лучшие по оценкам.
   // Осенью — парки, сады и усадьбы; зимой — катки; весной — сады; летом — набережные, пруды, парки
   const SEASON_COLLS = {
-    autumn: { emoji: '🍂', title: 'Золотая осень', test: (p, t) => p.cat === 'photo' && p.setting !== 'indoor' && /парк|сад|усадьб|заповедник|лесопарк|роща/.test(t) },
+    autumn: { emoji: '🍂', title: 'Золотая осень', test: (p, t) => p.cat === 'photo' && p.setting !== 'indoor' && (PARK_RE.test(t) || /роща/.test(t)) },
     winter: { emoji: '⛸', title: 'Катки', test: (p, t) => /каток|катки/.test(t) || (p.fun || []).some((f) => /каток/i.test(f.join(' '))) },
     spring: { emoji: '🌸', title: 'Весенние сады', test: (p, t) => p.cat === 'photo' && /(^|[^а-я])сад|ботаническ|оранжере/.test(t) },
-    summer: { emoji: '☀️', title: 'Лето на воздухе', test: (p, t) => p.cat === 'photo' && p.setting !== 'indoor' && /набережн|пруд|пляж|смотров|парк/.test(t) },
+    summer: { emoji: '☀️', title: 'Лето на воздухе', test: (p, t) => p.cat === 'photo' && p.setting !== 'indoor' && (PARK_RE.test(t) || /набережн|пруд|пляж|смотров/.test(t)) },
   };
   let seasonFor = 0;
   function refreshSeasonColl() {
@@ -1173,21 +1198,30 @@
   }
 
   // ---------- Маршруты ----------
-  // Готовые маршруты (routes.js) и свой: «＋ В маршрут» в карточке места. Время = дорога пешком + время в местах.
+  // Готовые маршруты (routes.js) и свой: «+ В маршрут» в карточке места. Время = дорога пешком + время в местах.
   // Лайки и сохранённые маршруты пока хранятся у пользователя (телефон + облако Telegram); общий счётчик — на сервере позже.
   const ROUTE_MAX = 10;
   const WALK_M_PER_MIN = 70; // прогулочный шаг, ~4,2 км/ч
   // Сезон по московскому месяцу: сезонные маршруты видны только в своё время года
+  const MSK_OFFSET = 3 * 3600000; // Москва — UTC+3 круглый год
+  const pad2 = (n) => String(n).padStart(2, '0');
   const SEASON = (() => {
-    const m = +new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', month: 'numeric' }).format(new Date());
+    const m = new Date(Date.now() + MSK_OFFSET).getUTCMonth() + 1;
     return m === 12 || m <= 2 ? 'winter' : m <= 5 ? 'spring' : m <= 8 ? 'summer' : 'autumn';
   })();
   const SEASON_LABEL = { winter: 'Зима', spring: 'Весна', summer: 'Лето', autumn: 'Осень' };
   const inSeason = (r) => !r.season || r.season === SEASON;
 
   // Сколько обычно проводят в месте (мин): зависит от типа и «размера» места
+  // Подбор маршрута спрашивает время и цену у сотен мест по много раз — считаем один раз на место
+  const stayCache = new WeakMap(), priceCache = new WeakMap();
   function stayFor(p, r) {
     if (r && r.stay && r.stay[p.id]) return r.stay[p.id]; // у готового маршрута может быть своё время (короткая прогулка)
+    let m = stayCache.get(p);
+    if (m === undefined) stayCache.set(p, (m = baseStay(p)));
+    return m;
+  }
+  function baseStay(p) {
     const desc = (p.desc || '') + ' ' + p.name;
     switch (p.cat) {
       case 'coffee': return 25;
@@ -1197,7 +1231,7 @@
         return lo && lo[0] >= 2000 ? 90 : 60;
       }
       case 'museum': return p.pop >= 40000 ? 120 : p.pop >= 15000 ? 90 : 60; // Третьяковка — 2 ч, Булгаков — 1 ч
-      case 'photo': return p.pop >= 50000 || /парк|сад|усадьб|заповедник|ВДНХ|Выставка/i.test(desc) && p.pop >= 15000 ? 60 : 30;
+      case 'photo': return p.pop >= 50000 || (PARK_RE.test(norm(desc)) || /вднх|выставка/.test(norm(desc))) && p.pop >= 15000 ? 60 : 30;
       case 'mall': return p.kind === 'food_court' ? 45 : 60;
       case 'night': return 60;
       default: return 40;
@@ -1205,8 +1239,13 @@
   }
   const stayText = (m) => (m >= 60 ? `${String(m / 60).replace('.', ',')} ч` : `${m} мин`);
 
-  // Цена на человека «от–до» по данным Яндекса: [от, до] или null, если неизвестна
+  // Цена на человека «от–до» по данным Яндекса: [от, до] или null, если неизвестна (результат только читают)
   function priceRange(p) {
+    let r = priceCache.get(p);
+    if (r === undefined) priceCache.set(p, (r = parsePrice(p)));
+    return r;
+  }
+  function parsePrice(p) {
     if (p.free || p.kind === 'mall') return [0, 0];
     const s = p.bill || p.tickets || p.cup;
     if (!s) return null;
@@ -1331,7 +1370,7 @@
         ${emo(r.emoji || '🚶', 'route-emoji')}
         <div class="route-title"><b>${esc(r.title)}${r.adult ? AGE_BADGE : ''}${r.season ? `<span class="season-badge">${SEASON_LABEL[r.season]}</span>` : ''}</b>
           <small>${durText(st.total)} · ${kmText(st.km)} пешком · ${placesWord(ps.length)}</small>
-          <small class="route-price">${routePriceText(st)}${done ? ' · <span class="route-done">✓ пройден</span>' : ''}</small></div>
+          <small class="route-price">${routePriceText(st)}${done ? ' · <span class="route-done">' + icon('check', 'ic-inline') + 'пройден</span>' : ''}</small></div>
         ${kind === 'saved'
           ? `<button class="icon-btn" type="button" data-del="${esc(r.id)}" aria-label="Удалить маршрут">${icon('close')}</button>`
           : `<button class="icon-btn${liked ? ' is-fav' : ''}" type="button" data-like="${esc(r.id)}" aria-pressed="${liked}" aria-label="Нравится">${icon(liked ? 'heart-fill' : 'heart')}</button>`}
@@ -1345,7 +1384,7 @@
     const ps = routePlaces(draft);
     if (!ps.length) {
       return `<div class="route-empty"><b>Собери свой маршрут</b>
-        <p>Открой место на карте и нажми «＋ В маршрут». Добавь 2–${ROUTE_MAX} мест — я посчитаю время и расстояние, а Яндекс Карты проведут по ним.</p></div>`;
+        <p>Открой место на карте и нажми «+ В маршрут». Добавь 2–${ROUTE_MAX} мест — я посчитаю время и расстояние, а Яндекс Карты проведут по ним.</p></div>`;
     }
     const st = routeStats(ps);
     const stops = ps.map((p, i) => `<li class="draft-stop">
@@ -1419,25 +1458,27 @@
     activeRoute = Object.assign({}, r, { ids: ps.map((p) => p.id) });
     state.route = activeRoute.ids;
     state.selected = null;
-    drawRouteLine();
     renderRouteSheet();
     openSheet('route');
-    render();
-    fitPlaces(activeRoute.fromMe ? [activeRoute.fromMe].concat(ps) : ps, Math.round(window.innerHeight * 0.45));
+    const cur = activeRoute;
+    afterSheet(() => {
+      if (activeRoute !== cur) return; // маршрут уже закрыли или показали другой
+      drawRouteLine();
+      render();
+      fitPlaces(cur.fromMe ? [cur.fromMe].concat(ps) : ps, Math.round(window.innerHeight * 0.45));
+    });
   }
 
   // ---------- «Когда идёшь?» ----------
-  // Время по Москве: «сегодня в 19:00» считаем от московской даты, где бы ни был телефон (Москва — UTC+3)
-  // Форматтеры создаём один раз: создание Intl.DateTimeFormat на телефоне стоит миллисекунды,
-  // а маршрут спрашивает время по каждой остановке
-  let mskFmt = null, clockFmt = null;
+  // Время по Москве: «сегодня в 19:00» считаем от московской даты, где бы ни был телефон.
+  // Москва живёт по UTC+3 круглый год (без перехода на летнее время с 2014) — считаем простой арифметикой.
+  // Intl с часовым поясом не нужен: его первое создание на слабом телефоне — пауза в десятки миллисекунд
+  const mskDate = (d) => new Date(d.getTime() + MSK_OFFSET);
   const mskParts = (d) => {
-    mskFmt = mskFmt || new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', hourCycle: 'h23' });
-    const p = {};
-    for (const x of mskFmt.formatToParts(d)) p[x.type] = x.value;
-    return p;
+    const m = mskDate(d);
+    return { year: String(m.getUTCFullYear()), month: pad2(m.getUTCMonth() + 1), day: pad2(m.getUTCDate()), hour: pad2(m.getUTCHours()) };
   };
-  const clock = (d) => (clockFmt = clockFmt || new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })).format(d);
+  const clock = (d) => { const m = mskDate(d); return pad2(m.getUTCHours()) + ':' + pad2(m.getUTCMinutes()); };
 
   // «Выхожу через …» — ползунок: шаги в минутах от «сейчас»
   // дальше — каждый час, до полутора суток: так можно спланировать и «завтра днём»
@@ -1480,7 +1521,7 @@
   // Оценка после посещения: 1 — понравилось, -1 — не моё. По ним подбор учится (см. tasteK)
   let rates = asObj(readJson('rates', {}));
   // Москва живёт по UTC+3 круглый год — день считаем без календарных библиотек
-  const mskDay = (t) => Math.floor(((t === undefined ? Date.now() : t) + 3 * 3600000) / 86400000);
+  const mskDay = (t) => Math.floor(((t === undefined ? Date.now() : t) + MSK_OFFSET) / 86400000);
   // Облако Telegram хранит до 4096 символов в ключе: берём последние записи, пока влезают
   const lastEntries = (obj, max) => Object.fromEntries(Object.entries(obj).slice(-max));
   function saveVisited() {
@@ -1552,7 +1593,7 @@
         <span class="stop-num cat--${p.cat}">${i + 1}</span>
         <span class="stop-name"><b>${esc(p.name)}</b><small>в ${tl[i].arrive} · ~${stayText(stayFor(p, r))}${stopPrice(p)}</small>
           ${tl[i].warn ? `<small class="stop-closed">${tl[i].warn}</small>` : ''}</span>
-        <button class="stop-check${been ? ' is-on' : ''}" type="button" data-visit="${esc(p.id)}" aria-pressed="${been}" aria-label="Был здесь">✓</button>
+        <button class="stop-check${been ? ' is-on' : ''}" type="button" data-visit="${esc(p.id)}" aria-pressed="${been}" aria-label="Был здесь">${icon('check')}</button>
       </li>`;
     }).join('');
   }
@@ -1621,7 +1662,6 @@
       .concat(['', 'Маршрут в Яндекс Картах: ' + routeGoUrl(ps, r.fromMe), `${cfg.APP_NAME}: https://t.me/${cfg.BOT_USERNAME}`]).join('\n');
     return { title: `${cfg.APP_NAME}: ${ready ? r.title : ps.map((p) => p.name).join(' → ')}`, start, end, location: at(ps[0]), details };
   }
-  const pad2 = (n) => String(n).padStart(2, '0');
   const utcStamp = (d) => `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}T${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}00Z`;
   function googleCalUrl(ev) {
     const q = (s) => encodeURIComponent(s);
@@ -1710,7 +1750,7 @@
     return on;
   }
 
-  // «＋ В маршрут» в карточке места
+  // «+ В маршрут» в карточке места
   function toggleDraft(p) {
     const i = draft.indexOf(p.id);
     if (i >= 0) { draft.splice(i, 1); toast('Убрано из маршрута'); }
@@ -2087,9 +2127,9 @@
       s = Math.min(s, p.lat); n = Math.max(n, p.lat);
       w = Math.min(w, p.lon); e = Math.max(e, p.lon);
     }
-    const el = $('#map');
+    const size = getMapSize(); // из кэша: чтение размеров сразу после правок DOM заставило бы браузер пересчитать вёрстку
     const top = 150; // поиск и чипсы
-    const W = el.clientWidth - 60, H = Math.max(120, el.clientHeight - top - bottom - 40);
+    const W = size.w - 60, H = Math.max(120, size.h - top - bottom - 40);
     const zx = Math.log2((W * 360) / (256 * Math.max(e - w, 0.002)));
     const zy = Math.log2((H * 2 * Math.PI) / (256 * Math.max(merc(n) - merc(s), 0.00005)));
     const zoom = Math.max(maxViewZoom(), Math.min(16, zx, zy));
@@ -2101,9 +2141,9 @@
 
   // Наименьший масштаб (самое сильное отдаление): Москва в МКАД целиком помещается на экран — дальше не отдаляем
   function maxViewZoom() {
-    const v = cfg.MAX_VIEW, el = $('#map');
+    const v = cfg.MAX_VIEW;
     if (!v) return cfg.MIN_ZOOM || 9;
-    const W = el.clientWidth || window.innerWidth, H = el.clientHeight || window.innerHeight;
+    const { w: W, h: H } = getMapSize(); // размер из кэша: вызывается при каждом движении карты
     const zx = Math.log2((W * 360) / (256 * (v.east - v.west)));
     const zy = Math.log2((H * 2 * Math.PI) / (256 * (merc(v.north) - merc(v.south))));
     return Math.max(cfg.MIN_ZOOM || 9, Math.round(Math.min(zx, zy) * 100) / 100);
@@ -2381,26 +2421,32 @@
     return { label: `${sameDay ? 'Сегодня' : 'Завтра'} в ${clock(date)} в Москве`, e: k.e, temp: tempText(h.temp), t: k.t, bad, tip };
   }
 
-  // Прогноз храним 20 минут, чтобы не спрашивать при каждом открытии
+  // Прогноз храним 20 минут, чтобы не спрашивать при каждом открытии; старше — обновляем
+  // (приложение может быть открыто часами — «Сейчас в Москве» не должно показывать утреннюю погоду)
+  const WEATHER_TTL = 20 * 60000;
+  let weatherTs = 0, weatherBusy = false;
+  const weatherStale = () => !weather || Date.now() - weatherTs > WEATHER_TTL;
   function loadWeather() {
     const cached = readJson('weather', null);
-    if (cached && cached.d && Date.now() - cached.ts < 20 * 60000) {
-      try { weather = parseWeather(cached.d); updateTodayChip(); return; } catch (e) { /* старый или испорченный кэш — спросим заново */ }
+    if (cached && cached.d && Date.now() - cached.ts < WEATHER_TTL) {
+      try { weather = parseWeather(cached.d); weatherTs = cached.ts; updateTodayChip(); return; } catch (e) { /* старый или испорченный кэш — спросим заново */ }
     }
-    if (!window.fetch) return;
+    if (!window.fetch || weatherBusy) return;
+    weatherBusy = true;
     const ctl = window.AbortController ? new AbortController() : null;
     const timer = setTimeout(() => ctl && ctl.abort(), 8000);
     fetch(WEATHER_URL, ctl ? { signal: ctl.signal } : {})
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
       .then((d) => {
         weather = parseWeather(d);
-        try { localStorage.setItem('weather', JSON.stringify({ ts: Date.now(), d })); } catch (e) { /* хранилище недоступно */ }
+        weatherTs = Date.now();
+        try { localStorage.setItem('weather', JSON.stringify({ ts: weatherTs, d })); } catch (e) { /* хранилище недоступно */ }
         updateTodayChip();
         if (openSheetName === 'today') renderToday();
         else if (openSheetName === 'routes' && gen.open) renderGen();
       })
       .catch(() => { /* без погоды всё работает, просто без подсказки */ })
-      .finally(() => clearTimeout(timer));
+      .finally(() => { clearTimeout(timer); weatherBusy = false; });
   }
 
   function updateTodayChip() {
@@ -2466,9 +2512,9 @@
       { v: 'any', e: '☕', label: 'Неважно' },
     ] },
     walk: { key: 'detail', title: 'Где погулять?', opts: [
-      { v: 'park', e: '🌳', label: 'Парк или сквер', chip: 'Парк', test: (p) => /парк|сквер|сад|заповедник|усадьб/.test(placeText(p)) },
+      { v: 'park', e: '🌳', label: 'Парк или сквер', chip: 'Парк', test: (p) => PARK_RE.test(placeText(p)) },
       { v: 'view', e: '🌇', label: 'Красивые виды', chip: 'Красивый вид', test: (p) => collSet('views').has(p.id) || /смотров|панорам|вид на/.test(placeText(p)) },
-      { v: 'sights', e: '🏙', label: 'Улицы и достопримечательности', chip: 'Достопримечательность', test: (p) => /достопримечательн|улица|площад|бульвар|набережн|мост|переул/.test(placeText(p)) },
+      { v: 'sights', e: '🏙', label: 'Улицы и достопримечательности', chip: 'Достопримечательность', test: (p) => SIGHTS_RE.test(placeText(p)) },
       { v: 'any', e: '🚶', label: 'Неважно' },
     ] },
   };
@@ -2544,8 +2590,8 @@
     return (p) => {
       let k = 1;
       if (who === 'date') { if (date.has(p.id) || views.has(p.id)) k *= 1.8; if (p.rating >= 4.8) k *= 1.2; if (FAST_RE.test(placeText(p))) k *= 0.5; }
-      else if (who === 'friends') { if (p.kind === 'food_court' || /бар|паб/.test(placeText(p))) k *= 1.4; }
-      else if (who === 'kids') { if (kidsPlace(p)) k *= 2; if (/бар|кальян|паб/.test(placeText(p))) k *= 0.3; if (p.cat === 'photo' && /парк/.test(placeText(p))) k *= 1.2; }
+      else if (who === 'friends') { if (p.kind === 'food_court' || barPlace(p)) k *= 1.4; }
+      else if (who === 'kids') { if (kidsPlace(p)) k *= 2; if (barPlace(p)) k *= 0.3; if (p.cat === 'photo' && PARK_RE.test(placeText(p))) k *= 1.2; }
       if (bad) k *= isIndoor(p) || p.setting === 'indoor' ? 1.4 : p.setting === 'outdoor' || p.cat === 'photo' ? 0.3 : 1;
       return k;
     };
@@ -2587,7 +2633,7 @@
       <span class="pick-body">
         ${i === 0 ? '<span class="pick-badge">Лучший вариант</span>' : ''}
         <b>${esc(p.name)}</b>
-        <small>${p.rating ? `<span class="row-rating">★ ${p.rating.toFixed(1).replace('.', ',')}</span> · ` : ''}${esc(catLabel(p))}${stopPrice(p)}</small>
+        <small>${p.rating ? `<span class="row-rating">${STAR}${p.rating.toFixed(1).replace('.', ',')}</span> · ` : ''}${esc(catLabel(p))}${stopPrice(p)}</small>
         ${today.user ? `<small>${distanceText(distance(today.user, p))}</small>` : ''}
         ${why ? `<span class="why">${why}</span>` : ''}
       </span></button>`;
@@ -2658,7 +2704,7 @@
     haptic.tap();
     renderToday();
     openSheet('today');
-    if (!weather) loadWeather();
+    if (weatherStale()) loadWeather();
   }
 
   // Лучшие варианты: открыто к твоему приходу (и хватит времени побыть), по бюджету, недалеко;
@@ -3066,7 +3112,7 @@
 
   function visitButtonHtml(p) {
     const on = visited.has(p.id);
-    return `<button class="tag tag--btn${on ? ' tag--open' : ''}" type="button" data-action="visit" aria-pressed="${on}">${on ? '✓ Посещено' : '＋ Отметить посещение'}</button>`;
+    return `<button class="tag tag--btn${on ? ' tag--open' : ''}" type="button" data-action="visit" aria-pressed="${on}">${on ? icon('check', 'ic-inline') + 'Посещено' : icon('plus', 'ic-inline') + 'Отметить посещение'}</button>`;
   }
 
   // «Как тебе?» — появляется, когда место отмечено. attr — data-атрибут кнопок (в карточке места и в профиле разные)
@@ -3159,7 +3205,7 @@
   // Согласие уже дано на этом телефоне или в Telegram на другом устройстве — не спрашиваем
   function ensureLegal(done) {
     if (legalAccepted()) { done(); return; }
-    if (supports('6.9')) {
+    if (supports('6.9') && !withdrawPending) {
       tg.CloudStorage.getItem('legal', (err, v) => {
         if (!err && v === LEGAL_V) { try { localStorage.setItem('legal', LEGAL_V); } catch (e) { /* хранилище недоступно */ } done(); }
         else showLegal(done);
@@ -3169,11 +3215,24 @@
 
   // Отзыв согласия: удаляем всё, что приложение хранит о человеке, — на телефоне и в облаке Telegram
   const USER_KEYS = ['favs', 'age18', 'theme', 'route_draft', 'routes_saved', 'routes_liked', 'visited', 'routes_done', 'visit_days', 'rates', 'onboarded', 'legal', 'profile', 'profile_skip'];
+  // Пока облако не подтвердило удаление (например, не было сети), на телефоне лежит отметка:
+  // при следующем запуске сначала дочищаем облако и ничего из него не берём — ни данные, ни согласие
+  const WITHDRAW_KEY = 'withdraw_pending';
+  const withdrawPending = (() => { try { return localStorage.getItem(WITHDRAW_KEY) === '1'; } catch (e) { return false; } })();
+  function clearCloud(done) {
+    tg.CloudStorage.removeItems(USER_KEYS, (err) => {
+      if (!err) { try { localStorage.removeItem(WITHDRAW_KEY); } catch (e) { /* хранилище недоступно */ } }
+      if (done) done();
+    });
+  }
   function withdrawConsent() {
     const go = () => {
       try { USER_KEYS.concat(['legal_at', 'gen', 'weather', 'lite']).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* хранилище недоступно */ }
-      if (supports('6.9')) tg.CloudStorage.removeItems(USER_KEYS, () => location.reload());
-      else location.reload();
+      if (supports('6.9')) {
+        try { localStorage.setItem(WITHDRAW_KEY, '1'); } catch (e) { /* хранилище недоступно */ }
+        clearCloud(() => location.reload());
+        setTimeout(() => location.reload(), 4000); // облако не ответило (нет сети) — дочистим при следующем запуске
+      } else location.reload();
     };
     const text = 'Отозвать согласие? Избранное, маршруты, отметки, ответы и настройки удалятся с этого устройства и из облака Telegram. Чтобы снова пользоваться приложением, нужно будет заново принять документы.';
     if (supports('6.2')) tg.showConfirm(text, (ok) => ok && go());
@@ -3263,9 +3322,9 @@
   function interestMatch(p, v) {
     const t = placeText(p);
     switch (v) {
-      case 'parks': return p.cat === 'photo' && /парк|сквер|сад|заповедник|усадьб/.test(t);
+      case 'parks': return p.cat === 'photo' && PARK_RE.test(t);
       case 'views': return collSet('views').has(p.id) || /смотров|панорам/.test(t);
-      case 'sights': return p.cat === 'photo' && /достопримечательн|улица|площад|бульвар|набережн|мост|переул/.test(t);
+      case 'sights': return p.cat === 'photo' && SIGHTS_RE.test(t);
       default: return p.cat === v;
     }
   }
@@ -3288,7 +3347,7 @@
       if ((p.pop || 0) > 20000) k *= 0.6;
       else if ((p.pop || 0) < 3000 && p.rating >= 4.7) k *= 1.15;
     }
-    if (tiredOf('noise') && (p.kind === 'food_court' || /бар|паб|караоке|клуб|кальян/.test(placeText(p)))) k *= 0.5;
+    if (tiredOf('noise') && (p.kind === 'food_court' || (barPlace(p) || NOISE_RE.test(placeText(p))))) k *= 0.5;
     if (tiredOf('pricey')) { const r = priceRange(p); if (r && (r[0] + r[1]) / 2 > 2500) k *= 0.5; }
     if (tiredOf('outdoor')) k *= p.setting === 'outdoor' ? 0.6 : p.setting === 'indoor' ? 1.15 : 1;
     if (favCuisine(p)) k *= 1.4;                                                       // любимая кухня
@@ -3460,9 +3519,9 @@
   // ---------- Знакомство при первом запуске ----------
   const ONBOARD = [
     { e: '🗺', title: 'Лучшие места Москвы на одной карте', text: 'Почти 2 000 кафе, музеев, парков и красивых мест внутри МКАД — с высокой оценкой в Яндекс Картах. Нажми на метку: часы работы, цены и как добраться.' },
-    { e: '✨', title: 'Не знаешь, куда пойти?', text: 'Нажми «Куда сегодня?» над картой: три вопроса — и подберу места рядом с учётом погоды. А кубик внизу выберет место наугад.' },
+    { e: '✨', title: 'Не знаешь, куда пойти?', text: 'Нажми «Куда сегодня?» над картой: несколько коротких вопросов — и подберу места с учётом погоды, часов работы и бюджета. А кубик внизу выберет место наугад.' },
     { e: '🚶', title: 'Рядом и маршруты', text: '«Рядом» покажет, что вокруг тебя. В «Маршрутах» — готовые прогулки, или собери свою из любых мест.' },
-    { e: '🏅', title: 'Собирай значки', text: 'Отмечай посещённые места — за них дают значки, а на карте Москвы открываются новые районы. Любимое сохраняй в ❤️.' },
+    { e: '🏅', title: 'Собирай значки', text: 'Отмечай посещённые места и оценивай их — подбор учтёт. За отметки дают значки, а в конце месяца — итоги. Любимое сохраняй в ' + emo('❤️') + '.' },
   ];
   let obIndex = 0;
 
@@ -3521,7 +3580,7 @@
     if (/[?&]onboard=0/.test(location.search)) return;
     if (done) { setTimeout(maybeProfile, 1200); return; } // знакомство уже было — один раз предложим анкету
     const show = () => setTimeout(() => { if (!openSheetName) openOnboard(); else markOnboarded(); }, 900);
-    if (supports('6.9')) {
+    if (supports('6.9') && !withdrawPending) {
       tg.CloudStorage.getItem('onboarded', (err, v) => {
         if (!err && v === '1') { try { localStorage.setItem('onboarded', '1'); } catch (e) { /* хранилище недоступно */ } setTimeout(maybeProfile, 1200); return; }
         show();
@@ -3531,11 +3590,41 @@
 
   // Картинки эмодзи заранее загружаем и раскодируем, пока телефон свободен (по несколько за раз):
   // в шторках «Куда сегодня?», «Маршруты», «Достижения» они тогда появляются сразу, без мигания.
-  // Потом заранее верстаем шторку маршрута
   const warmedEmoji = [];
+  // Прогрев шрифта. Браузер готовит шрифт отдельно для каждого сочетания «жирность + размер»: при
+  // первом показе это 1–2 мс на сочетание (на слабом телефоне — до 8), а в шторке их 5–10 — отсюда
+  // заметная пауза при первом открытии карточки, профиля, маршрутов. Готовим все сочетания из
+  // style.css заранее, по два за раз в свободное время. Буквы — из всех частей шрифта Nunito
+  // (кириллица, латиница, знаки), иначе прогреется только одна из них. Шрифт — тот же, что у страницы
+  const FONT_WARM = ('600 11.5,600 12,600 12.5,600 13.5,600 14,600 15,600 15.5,700 9.5,700 10.5,700 11.5,700 12,700 12.5,700 13,'
+    + '700 13.5,700 14,700 14.5,700 15,700 16,700 24,800 10.5,800 11,800 11.5,800 12.5,800 13,800 13.5,800 14,800 14.5,800 15,'
+    + '800 15.5,800 16,800 16.5,800 17,800 19,800 22,800 24,800 26,400 12,400 13,400 14.5,800 11.5 0.03em').split(',');
+  // браузер готовит каждую букву для каждого размера — поэтому весь алфавит, цифры и знаки
+  // (в две порции: на слабом телефоне весь алфавит в одном размере — около 30 мс, а порция должна быть короткой)
+  const WARM_TEXT = ['АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ абвгдеёжзийклмнопрстуфхцчшщъыьэюя № «»',
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 ₽ — – · , . : ; ! ? ( ) / % + − ~ … ° & "'];
+  const idle = window.requestIdleCallback || ((cb) => setTimeout(() => cb({ timeRemaining: () => 8 }), 60));
+  function warmFonts() {
+    const box = document.createElement('div');
+    box.setAttribute('aria-hidden', 'true');
+    box.style.cssText = 'position:fixed;left:0;top:0;width:300px;opacity:0;pointer-events:none;z-index:-1';
+    document.body.appendChild(box);
+    let i = 0; // порция: сочетание i >> 1, половина алфавита i & 1
+    const step = () => {
+      const [w, s, ls] = FONT_WARM[i >> 1].split(' ');
+      const el = document.createElement('div');
+      el.style.cssText = `font-weight:${w};font-size:${s}px${ls ? ';letter-spacing:' + ls : ''}`;
+      el.textContent = WARM_TEXT[i & 1];
+      box.appendChild(el);
+      void box.offsetHeight; // раскладка сейчас, малыми порциями — а не в момент открытия шторки
+      if (++i < FONT_WARM.length * 2) idle(step);
+      else { box.remove(); idle(warmEmoji); }
+    };
+    idle(step);
+  }
+
   function warmEmoji() {
     const codes = [...EMOJI_SET];
-    const idle = window.requestIdleCallback || ((cb) => setTimeout(() => cb({ timeRemaining: () => 8 }), 60));
     let i = 0;
     const step = (dl) => {
       do {
@@ -3545,18 +3634,9 @@
         if (img.decode) img.decode().catch(() => {});
         warmedEmoji.push(img); // держим ссылку, чтобы картинка осталась в памяти
       } while (i < codes.length && dl.timeRemaining() > 4);
-      if (i < codes.length) idle(step); else idle(warmRouteSheet);
+      if (i < codes.length) idle(step);
     };
     idle(step);
-  }
-
-  // Шторку маршрута один раз верстаем заранее (она скрыта): первый показ маршрута — без заминки
-  function warmRouteSheet() {
-    const r = READY_ROUTES.find((x) => routePlaces(x.ids).length > 1 && !x.adult);
-    if (!r || activeRoute) return;
-    activeRoute = Object.assign({}, r);
-    try { renderRouteSheet(); void $('#route-sheet').offsetHeight; } catch (e) { /* не страшно */ }
-    activeRoute = null;
   }
 
   // ---------- Заставка ----------
@@ -3667,7 +3747,7 @@
       // «Собери маршрут за меня» и фильтры
       const gOpen = t.closest('[data-gen-open]'), gSet = t.closest('[data-gen]'), gTog = t.closest('[data-gen-toggle]');
       const gGo = t.closest('[data-gen-go]'), gWant = t.closest('[data-gen-want]');
-      if (gOpen) { gen.open = !gen.open; haptic.tap(); renderGen(); if (gen.open && !weather) loadWeather(); return; }
+      if (gOpen) { gen.open = !gen.open; haptic.tap(); renderGen(); if (gen.open && weatherStale()) loadWeather(); return; }
       if (gSet) {
         const v = gSet.dataset.val;
         gen[gSet.dataset.gen] = gSet.dataset.gen === 'budget' ? (v === 'null' ? null : +v) : v;
@@ -3777,7 +3857,7 @@
     });
     $('#age-yes').addEventListener('click', () => answerAge(true));
     $('#age-no').addEventListener('click', () => answerAge(false));
-    loadCloudAge();
+    if (!withdrawPending) loadCloudAge();
     // Строки мест и плитки подборок в поиске и избранном
     for (const sel of ['#search-body', '#favs-sheet', '#near-list']) {
       $(sel).addEventListener('click', (e) => {
@@ -3792,10 +3872,9 @@
     updateFavButton();
     updateDraftBadge();
     updateAwardBadge();
-    loadCloudTheme();
-    loadCloudFavs();
-    loadCloudRoutes();
-    loadCloudProfile();
+    // облако: подтягиваем данные с других устройств — или дочищаем его после отзыва согласия без сети
+    if (withdrawPending) { if (supports('6.9')) clearCloud(); }
+    else { loadCloudTheme(); loadCloudFavs(); loadCloudRoutes(); loadCloudProfile(); }
     $('#backdrop').addEventListener('click', () => closeSheets());
     $('#splash-retry').addEventListener('click', () => location.reload());
     $('#place-sheet').addEventListener('click', (e) => {
@@ -3859,7 +3938,7 @@
       render(); syncFilters(); updateFavButton(); updateDraftBadge(); updateAwardBadge(); warmSearchIndex();
       // время и цену готовых маршрутов считаем заранее, в паузе, — «Маршруты» открываются быстрее
       (window.requestIdleCallback || setTimeout)(() => READY_ROUTES.forEach((r) => { const ps = routePlaces(r.ids); if (ps.length > 1) routeStats(ps, null, r); }));
-      (window.requestIdleCallback || setTimeout)(warmEmoji);
+      idle(warmFonts); // потом эмодзи
     });
     const sp = startParam();
     if (sp.startsWith('r-') || sp.startsWith('m-')) {
@@ -3888,6 +3967,8 @@
     const deepLink = !!sp || /[?&](lucky|routes)=1/.test(location.search);
     legalReady.then(() => { if (!deepLink) maybeOnboard(); });
     loadWeather();
+    // вернулись в приложение спустя время — обновим погоду на кнопке «Куда сегодня?»
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && weatherStale()) loadWeather(); });
   }
 
   main();

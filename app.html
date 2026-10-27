@@ -9,7 +9,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <!-- Версия файлов: tools/publish.ps1 подставляет сюда время публикации -->
-  <script>window.APP_VERSION = '202610252326';</script>
+  <script>window.APP_VERSION = '202610271054';</script>
   <!-- Заранее открываем соединения с серверами карты, шрифтов и Telegram — быстрее запуск -->
   <link rel="preconnect" href="https://api-maps.yandex.ru" crossorigin>
   <link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin>
@@ -22,7 +22,7 @@
   <title>Куда пойти</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4C20.4 4 11 13 11 24.3 11 39.5 32 60 32 60s21-20.5 21-35.7C53 13 43.6 4 32 4z' fill='%23ff4059'/%3E%3Ccircle cx='32' cy='24' r='8' fill='%23fff'/%3E%3C/svg%3E">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=202610252326">
+  <link rel="stylesheet" href="css/style.css?v=202610271054">
 </head>
 <body>
   <!-- Иконки: один набор на всё приложение (метки, кнопки, карточки) -->
@@ -37,6 +37,9 @@
       <symbol id="i-night" viewBox="0 0 24 24"><path d="M5 4.5h14L12 12.5zM12 12.5v7M8 20h8M7.5 7.5h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="0.1 3.4"/></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <!-- Галочка и звезда — иконками: символов ✓ ★ нет в шрифте Nunito, и телефон при первом показе искал бы их в системных шрифтах (заметная пауза) -->
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.6l2.85 5.95 6.55.85-4.8 4.5 1.2 6.5L12 17.25 6.2 20.4l1.2-6.5-4.8-4.5 6.55-.85z" fill="currentColor"/></symbol>
       <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 14l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 10l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
@@ -243,7 +246,7 @@
   <!-- Карточка места -->
   <section id="place-sheet" class="sheet" aria-label="Место"></section>
 
-  <!-- «Куда сегодня?»: погода и три вопроса -->
+  <!-- «Куда сегодня?»: погода и короткие вопросы -->
   <section id="today-sheet" class="sheet sheet--tall" aria-label="Куда сегодня"></section>
 
   <!-- Достижения -->
@@ -285,14 +288,14 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/config.js?v=202610252326"></script>
-  <script src="js/places.js?v=202610252326"></script>
-  <script src="js/collections.js?v=202610252326"></script>
-  <script src="js/routes.js?v=202610252326"></script>
-  <script src="js/metro.js?v=202610252326"></script>
-  <script src="js/photos.js?v=202610252326"></script>
-  <script src="js/hours.js?v=202610252326"></script>
-  <script src="js/map.js?v=202610252326"></script>
-  <script src="js/app.js?v=202610252326"></script>
+  <script src="js/config.js?v=202610271054"></script>
+  <script src="js/places.js?v=202610271054"></script>
+  <script src="js/collections.js?v=202610271054"></script>
+  <script src="js/routes.js?v=202610271054"></script>
+  <script src="js/metro.js?v=202610271054"></script>
+  <script src="js/photos.js?v=202610271054"></script>
+  <script src="js/hours.js?v=202610271054"></script>
+  <script src="js/map.js?v=202610271054"></script>
+  <script src="js/app.js?v=202610271054"></script>
 </body>
 </html>
