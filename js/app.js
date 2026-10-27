@@ -3085,7 +3085,7 @@
         <a href="#" data-doc="consent">Согласие на обработку персональных данных</a>
       </div>
       <button class="link-btn link-btn--danger" type="button" data-awards="withdraw">Отозвать согласие и удалить мои данные</button>
-      <p class="f-note credits">Значки эмодзи — Twemoji (© Twitter, Inc. и другие авторы), лицензия CC BY 4.0. Фото мест — Wikimedia Commons, автор и лицензия указаны у каждого фото.</p>`;
+      <p class="f-note credits">Значки эмодзи — Twemoji (© Twitter, Inc. и другие авторы), лицензия CC BY 4.0. Шрифт — Nunito (© The Nunito Project Authors), лицензия SIL OFL 1.1. Фото мест — Wikimedia Commons, автор и лицензия указаны у каждого фото.</p>`;
   }
 
   // Перерисовать профиль на том же месте прокрутки (после оценки, смены месяца)

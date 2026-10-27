@@ -9,20 +9,20 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <!-- Версия файлов: tools/publish.ps1 подставляет сюда время публикации -->
-  <script>window.APP_VERSION = '202610271054';</script>
+  <script>window.APP_VERSION = '202610271139';</script>
   <!-- Заранее открываем соединения с серверами карты, шрифтов и Telegram — быстрее запуск -->
   <link rel="preconnect" href="https://api-maps.yandex.ru" crossorigin>
   <link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin>
   <link rel="preconnect" href="https://yastatic.net" crossorigin>
   <link rel="preconnect" href="https://telegram.org">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- Шрифт грузится, не задерживая показ приложения: до его загрузки — системный -->
-  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+  <!-- Шрифт Nunito — с нашего сайта (fonts/), кириллица и латиница загружаются сразу, вместе со страницей:
+       текст раскладывается один раз, а не заново после догрузки шрифта. Остальные наборы букв — по мере надобности -->
+  <link rel="preload" href="fonts/nunito-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
   <title>Куда пойти</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4C20.4 4 11 13 11 24.3 11 39.5 32 60 32 60s21-20.5 21-35.7C53 13 43.6 4 32 4z' fill='%23ff4059'/%3E%3Ccircle cx='32' cy='24' r='8' fill='%23fff'/%3E%3C/svg%3E">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="css/style.css?v=202610271054">
+  <link rel="stylesheet" href="css/style.css?v=202610271139">
 </head>
 <body>
   <!-- Иконки: один набор на всё приложение (метки, кнопки, карточки) -->
@@ -288,14 +288,14 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/config.js?v=202610271054"></script>
-  <script src="js/places.js?v=202610271054"></script>
-  <script src="js/collections.js?v=202610271054"></script>
-  <script src="js/routes.js?v=202610271054"></script>
-  <script src="js/metro.js?v=202610271054"></script>
-  <script src="js/photos.js?v=202610271054"></script>
-  <script src="js/hours.js?v=202610271054"></script>
-  <script src="js/map.js?v=202610271054"></script>
-  <script src="js/app.js?v=202610271054"></script>
+  <script src="js/config.js?v=202610271139"></script>
+  <script src="js/places.js?v=202610271139"></script>
+  <script src="js/collections.js?v=202610271139"></script>
+  <script src="js/routes.js?v=202610271139"></script>
+  <script src="js/metro.js?v=202610271139"></script>
+  <script src="js/photos.js?v=202610271139"></script>
+  <script src="js/hours.js?v=202610271139"></script>
+  <script src="js/map.js?v=202610271139"></script>
+  <script src="js/app.js?v=202610271139"></script>
 </body>
 </html>

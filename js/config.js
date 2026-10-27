@@ -31,6 +31,6 @@ window.APP_CONFIG = {
   OPERATOR_NAME: '',
   OPERATOR_EMAIL: '',
   // Версия документов: поменяй дату, если изменишь их текст, — все заново подтвердят согласие
-  LEGAL_VERSION: '2026-10-25',
+  LEGAL_VERSION: '2026-10-27',
 
 };
