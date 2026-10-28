@@ -740,8 +740,11 @@
       if (back === 'today') renderToday();
       else if (back === 'awards') rerenderAwards();
       openSheet(back);
+      // туда же, где был список, — а не наверх (шторка уже свёрстана в openSheet)
+      $(`#${back}-sheet`).scrollTop = backScroll;
     }
   }
+  let backScroll = 0; // где был список «Куда сегодня?» или профиля, когда открыли место
 
   // Закрытие шторки свайпом вниз
   function enableSwipe(sheet) {
@@ -2894,7 +2897,7 @@
     }
     const row = e.target.closest('[data-id]');
     const p = row && byId.get(row.dataset.id);
-    if (p) { haptic.tap(); openPlace(p, { focus: true }); placeBack = 'today'; }
+    if (p) { haptic.tap(); backScroll = $('#today-sheet').scrollTop; openPlace(p, { focus: true }); placeBack = 'today'; }
   }
 
   // ---------- Достижения ----------
@@ -3719,7 +3722,7 @@
       if (rv) { setRate(rv.closest('[data-rate-id]').dataset.rateId, +rv.dataset.rateV); rerenderAwards(); return; }
       const row = e.target.closest('[data-id]');
       const p = row && byId.get(row.dataset.id);
-      if (p) { haptic.tap(); openPlace(p, { focus: true }); placeBack = 'awards'; }
+      if (p) { haptic.tap(); backScroll = $('#awards-sheet').scrollTop; openPlace(p, { focus: true }); placeBack = 'awards'; }
     });
     $('#coll-close').addEventListener('click', closeCollection);
     $('#near-tabs').innerHTML = NEAR_TABS.map((t) => `<button type="button" class="seg-btn" data-v="${t.v}">${t.label}</button>`).join('');
