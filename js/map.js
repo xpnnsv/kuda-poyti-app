@@ -299,10 +299,14 @@
       const u = this.user;
       u.el.style.transform = `translate3d(${((u.lon - b.west) * kx).toFixed(1)}px, ${((mN - u._my) * ky).toFixed(1)}px, 0)`;
     }
+    const avoid = this.avoidBoxes();
+    const hits = (l, t, r, bt) => avoid.some((a) => l < a[2] && r > a[0] && t < a[3] && bt > a[1]);
     for (const it of this.items) {
       const x = (it.lon - b.west) * kx, y = (mN - it._my) * ky;
       if (x < -80 || x > w + 80 || y < -50 || y > h + 50) continue;
       const s = this.sprite(it);
+      // подпись Яндекса, логотип и «Открыть Яндекс Карты» метками не закрываем (выбранное место — всегда видно)
+      if (!it.active && hits(x - s.r, y - s.r, x + s.r, y + s.r)) continue;
       // ровно по пикселям экрана и в масштабе 1:1 — иначе браузер сглаживает картинку и метка «мылится»
       g.drawImage(s.c, snap(x - s.half), snap(y - s.half), s.c.width / dpr, s.c.height / dpr);
       let lb = null;
@@ -314,8 +318,8 @@
           if (performance.now() < deadline) l = this.label(it);
           else { l = null; more = true; }
         }
-        if (l) {
-          const lx = x - l.w / 2, ly = y + s.r + 4;
+        const lx = l && x - l.w / 2, ly = l && y + s.r + 4;
+        if (l && (it.active || !hits(lx, ly, lx + l.w, ly + l.h))) {
           g.drawImage(l.c, snap(lx - l.pad), snap(ly - l.pad), l.c.width / dpr, l.c.height / dpr);
           lb = [lx, ly, lx + l.w, ly + l.h];
         }
@@ -323,6 +327,19 @@
       this.placed.push({ it, x, y, r: s.r, lb });
     }
     if (more && !this.moreRaf) this.moreRaf = requestAnimationFrame(() => { this.moreRaf = 0; this.draw(); });
+  };
+
+  // Где на карте служебные надписи Яндекса (они внутри карты): «© Яндекс · Условия», логотип, «Открыть
+  // Яндекс Карты». Их размеры почти не меняются — перемеряем не чаще раза в секунду, с запасом 6 px
+  const AVOID_SEL = '.ymaps3--map-copyrights__container, .ymaps3--map-copyrights__logo, .ymaps3--controls_bottom .ymaps3--control';
+  CanvasMarkers.prototype.avoidBoxes = function () {
+    const now = performance.now();
+    if (this.avoid && now - this.avoidAt < 1000) return this.avoid;
+    this.avoidAt = now;
+    const base = this.el.getBoundingClientRect(), m = 6;
+    this.avoid = [...this.el.querySelectorAll(AVOID_SEL)].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height)
+      .map((r) => [r.left - base.left - m, r.top - base.top - m, r.right - base.left + m, r.bottom - base.top + m]);
+    return this.avoid;
   };
 
   // Какая метка под пальцем: сверху вниз, с запасом в 8 px — по метке легко попасть
