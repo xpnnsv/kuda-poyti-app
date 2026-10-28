@@ -505,12 +505,14 @@
     async init(el, o) {
       if (o.apiKey) {
         try {
-          await withTimeout(yandex.init(el, o), 10000);
+          // через VPN и на слабом мобильном интернете Яндекс иногда грузится дольше 10 с — ждём до 20 с
+          await withTimeout(yandex.init(el, o), o.yandexTimeout || 20000);
           this.impl = yandex;
           this.provider = 'yandex';
           return;
         } catch (e) {
           console.warn('Яндекс Карты не загрузились, переключаюсь на OpenStreetMap:', e);
+          this.fallbackReason = (e && e.message) || 'ошибка'; // timeout — не успели за отведённое время
           yandex.cancelled = true;
           el.innerHTML = '';
         }

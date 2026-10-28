@@ -145,13 +145,13 @@
   }
 
   let toastTimer;
-  // e — эмодзи картинкой перед текстом (например, «🎉 Маршрут пройден!»)
-  function toast(text, e) {
+  // e — эмодзи картинкой перед текстом (например, «🎉 Маршрут пройден!»); ms — сколько показывать
+  function toast(text, e, ms) {
     const t = $('#toast');
     if (e) t.innerHTML = emo(e) + ' ' + esc(text); else t.textContent = text;
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+    toastTimer = setTimeout(() => t.classList.remove('show'), ms || 3200);
   }
 
   // ---------- Избранное ----------
@@ -3903,6 +3903,10 @@
     });
     document.querySelectorAll('.sheet').forEach(enableSwipe);
 
+    // Карта долго грузится (VPN, слабый интернет) — объясняем на заставке, что происходит
+    const slowMap = setTimeout(() => {
+      if (!$('#splash').classList.contains('error')) $('#splash-text').textContent = 'Карта грузится дольше обычного — так бывает с VPN или слабым интернетом…';
+    }, 7000);
     try {
       await MapView.init($('#map'), {
         apiKey: (cfg.YANDEX_MAPS_API_KEY || '').trim(),
@@ -3915,11 +3919,17 @@
         markerRatio: LITE ? 2 : 3,       // метки и подписи — в полной чёткости экрана
       });
     } catch (e) {
+      clearTimeout(slowMap);
       console.error(e);
       splashError('Не удалось загрузить карту. Проверь интернет и попробуй ещё раз.');
       return;
     }
+    clearTimeout(slowMap);
     document.body.dataset.map = MapView.provider;
+    // Яндекс не успел — показана запасная карта (OpenStreetMap). Говорим об этом, а не молча меняем карту
+    if (MapView.provider === 'leaflet' && (cfg.YANDEX_MAPS_API_KEY || '').trim()) {
+      setTimeout(() => toast('Яндекс Карты не успели загрузиться — часто так бывает из-за VPN или слабого интернета. Пока показана запасная карта. Чтобы вернуть Яндекс, закрой и снова открой приложение (лучше без VPN)', null, 9000), 1200);
+    }
     // Экран поменял размер (поворот, Telegram развернул окно) — пересчитываем предел отдаления
     let resizeTimer;
     window.addEventListener('resize', () => {
