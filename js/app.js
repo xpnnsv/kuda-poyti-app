@@ -3911,7 +3911,8 @@
         bounds: viewBounds(),
         minZoom: maxViewZoom(),
         dark: isDark(),
-        pixelRatio: LITE ? 1.5 : 2,
+        pixelRatio: LITE ? 1.5 : 2,      // плитки карты — облегчённые
+        markerRatio: LITE ? 2 : 3,       // метки и подписи — в полной чёткости экрана
       });
     } catch (e) {
       console.error(e);

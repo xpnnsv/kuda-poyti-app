@@ -1,6 +1,9 @@
 // Карта. Если в config.js указан ключ — Яндекс Карты (API v3),
 // иначе (или если Яндекс не загрузился) — бесплатная карта OpenStreetMap через Leaflet.
 (function () {
+  // Настоящая чёткость экрана. Карте Яндекса её занижают (плитки легче — см. pixelRatio ниже), а метки и
+  // подписи рисуем в полном разрешении: запоминаем его здесь, до подмены
+  const SCREEN_DPR = window.devicePixelRatio || 1;
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
@@ -87,8 +90,9 @@
     g.closePath();
   }
 
-  function CanvasMarkers(map, el) {
+  function CanvasMarkers(map, el, maxDpr) {
     this.map = map;
+    this.maxDpr = maxDpr || 3; // в лёгком режиме — 2: на слабом телефоне меньше пикселей на кадр
     this.el = el;
     this.items = [];
     this.placed = [];
@@ -119,7 +123,7 @@
   CanvasMarkers.prototype.resize = function () {
     this.w = this.el.clientWidth || window.innerWidth;
     this.h = this.el.clientHeight || window.innerHeight;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 3);
+    this.dpr = Math.min(SCREEN_DPR, this.maxDpr);
     this.canvas.width = Math.round(this.w * this.dpr);
     this.canvas.height = Math.round(this.h * this.dpr);
   };
@@ -281,7 +285,10 @@
   };
 
   CanvasMarkers.prototype.draw = function () {
-    const g = this.ctx, w = this.w, h = this.h;
+    const g = this.ctx, w = this.w, h = this.h, dpr = this.dpr;
+    const snap = (v) => Math.round(v * dpr) / dpr; // к ближайшему пикселю экрана
+    const deadline = performance.now() + 4;
+    let more = false;
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.clearRect(0, 0, w, h);
     this.placed = [];
@@ -296,16 +303,26 @@
       const x = (it.lon - b.west) * kx, y = (mN - it._my) * ky;
       if (x < -80 || x > w + 80 || y < -50 || y > h + 50) continue;
       const s = this.sprite(it);
-      g.drawImage(s.c, x - s.half, y - s.half, s.size, s.size);
+      // ровно по пикселям экрана и в масштабе 1:1 — иначе браузер сглаживает картинку и метка «мылится»
+      g.drawImage(s.c, snap(x - s.half), snap(y - s.half), s.c.width / dpr, s.c.height / dpr);
       let lb = null;
       if (it.label) {
-        const l = this.label(it);
-        const lx = x - l.w / 2, ly = y + s.r + 4;
-        g.drawImage(l.c, lx - l.pad, ly - l.pad, l.w + l.pad * 2, l.h + l.pad * 2);
-        lb = [lx, ly, lx + l.w, ly + l.h];
+        // Новые подписи готовим не дольше 4 мс за кадр (смена темы, новый маршрут — их сразу десятки),
+        // остальные — в следующих кадрах: так в кадре не бывает долгой задачи
+        let l = this.labels.get(it.id);
+        if (!l || l.name !== it.name) {
+          if (performance.now() < deadline) l = this.label(it);
+          else { l = null; more = true; }
+        }
+        if (l) {
+          const lx = x - l.w / 2, ly = y + s.r + 4;
+          g.drawImage(l.c, snap(lx - l.pad), snap(ly - l.pad), l.c.width / dpr, l.c.height / dpr);
+          lb = [lx, ly, lx + l.w, ly + l.h];
+        }
       }
       this.placed.push({ it, x, y, r: s.r, lb });
     }
+    if (more && !this.moreRaf) this.moreRaf = requestAnimationFrame(() => { this.moreRaf = 0; this.draw(); });
   };
 
   // Какая метка под пальцем: сверху вниз, с запасом в 8 px — по метке легко попасть
@@ -352,7 +369,7 @@
       this.map = new YMap(el, props);
       this.map.addChild(new YMapDefaultSchemeLayer({}));
       this.map.addChild(new YMapDefaultFeaturesLayer({}));
-      this.cm = new CanvasMarkers(this.map, el);
+      this.cm = new CanvasMarkers(this.map, el, o.markerRatio);
       this.map.addChild(new YMapListener({
         layer: 'any',
         onUpdate: () => {
