@@ -1728,20 +1728,43 @@
     const parts = routePlaces(r.ids).map((p) => (p.ym ? Number(p.ym).toString(36) : null));
     if (parts.some((x) => !x)) return null;
     const code = 'm-' + parts.join('_');
-    return code.length <= 64 ? code : null;
+    return code.length <= 500 ? code : null; // параметр ссылки Telegram — до 512 знаков
+  }
+
+  // Приглашение другу: в Telegram — открытка через бота (картинка «Пойдём гулять?», текст и кнопка
+  // «Посмотреть маршрут», окно «Отправить в чат»). Если сервер бота не указан или не ответил —
+  // обычная ссылка с текстом приглашения. kind — 'route' или 'place', code — то, что откроет ссылка
+  function shareInvite(kind, code, caption, title) {
+    const link = `https://t.me/${cfg.BOT_USERNAME}?startapp=${code}`;
+    const plain = () => {
+      const text = caption; // переносы строк Telegram сохраняет
+      if (inTelegram) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
+      else if (navigator.share) navigator.share({ title, text, url: link }).catch(() => {});
+      else if (navigator.clipboard) navigator.clipboard.writeText(text + ' ' + link).then(() => toast('Приглашение скопировано — вставь его в чат'), () => toast(link));
+      else toast(link);
+    };
+    haptic.impact();
+    const server = (cfg.BOT_SERVER_URL || '').trim().replace(/\/$/, '');
+    if (!server || !supports('8.0') || typeof tg.shareMessage !== 'function' || !tg.initData) { plain(); return; }
+    const ctl = window.AbortController ? new AbortController() : null;
+    const timer = setTimeout(() => ctl && ctl.abort(), 6000);
+    fetch(server + '/invite', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl && ctl.signal,
+      body: JSON.stringify({ initData: tg.initData, kind, code, text: caption }),
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('HTTP ' + res.status))))
+      .then((d) => { if (!d.id) throw new Error('нет открытки'); tg.shareMessage(d.id); })
+      .catch((e) => { console.warn('Открытка не получилась, отправляю ссылкой:', e); plain(); })
+      .finally(() => clearTimeout(timer));
   }
 
   function shareRoute(r) {
     const code = routeShareCode(r);
-    if (!code) { toast('Поделиться ссылкой можно маршрутом до 6 мест — для длинных скоро сделаем'); return; }
+    if (!code) { toast('Этим маршрутом пока нельзя поделиться ссылкой — в нём есть место без адреса в Яндекс Картах'); return; }
     const ps = routePlaces(r.ids);
-    const link = `https://t.me/${cfg.BOT_USERNAME}?startapp=${code}`;
-    const text = `Пойдём? Маршрут «${r.title}»: ${durText(routeStats(ps, null, r).total)}, ${placesWord(ps.length)} — ${ps.map((p) => p.name).join(' → ')}`;
-    haptic.impact();
-    if (inTelegram) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
-    else if (navigator.share) navigator.share({ title: r.title, text, url: link }).catch(() => {});
-    else if (navigator.clipboard) navigator.clipboard.writeText(link).then(() => toast('Ссылка скопирована'), () => toast(link));
-    else toast(link);
+    const st = routeStats(ps, null, r);
+    const caption = `Пойдём гулять? 🚶\n«${r.title}»: ${ps.map((p) => p.name).join(' → ')}\n${durText(st.total).replace('~', '≈ ')}, ${kmText(st.km)} пешком`;
+    shareInvite('route', code, caption, r.title);
   }
 
   function toggleRouteLike(id) {
@@ -2177,18 +2200,8 @@
   // ---------- Позвать друга ----------
   // Ссылка открывает мини-апп сразу на этом месте (нужно «Main Mini App» в @BotFather)
   function sharePlace(p) {
-    const link = `https://t.me/${cfg.BOT_USERNAME}?startapp=p-${p.id}`;
-    const text = `Пойдём сюда? ${p.name}${p.address ? ', ' + p.address : ''}`;
-    haptic.impact();
-    if (inTelegram) {
-      tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
-    } else if (navigator.share) {
-      navigator.share({ title: p.name, text, url: link }).catch(() => {});
-    } else if (navigator.clipboard) {
-      navigator.clipboard.writeText(link).then(() => toast('Ссылка скопирована'), () => toast(link));
-    } else {
-      toast(link);
-    }
+    const caption = `Пойдём сюда? 📍\n${p.name}${p.address ? ', ' + p.address : ''}`;
+    shareInvite('place', `p-${p.id}`, caption, p.name);
   }
 
   // Параметр из ссылки t.me/<бот>?startapp=… : «p-<id>» — открыть место, «lucky» — «Мне повезёт»
