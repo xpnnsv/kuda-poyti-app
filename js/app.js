@@ -1737,7 +1737,10 @@
   function shareInvite(kind, code, caption, title) {
     const link = `https://t.me/${cfg.BOT_USERNAME}?startapp=${code}`;
     const plain = () => {
-      const text = caption; // переносы строк Telegram сохраняет
+      // запасная ссылка на сайт: открывает то же самое в браузере, даже если у бота не включено
+      // главное мини-приложение (тогда Telegram на ссылку t.me/…?startapp отвечает «BOT_INVALID»)
+      const web = new URL('./?startapp=' + code, location.href).href;
+      const text = `${caption}\n\nНе открывается в Telegram? Вот ссылка: ${web}`; // переносы строк Telegram сохраняет
       if (inTelegram) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
       else if (navigator.share) navigator.share({ title, text, url: link }).catch(() => {});
       else if (navigator.clipboard) navigator.clipboard.writeText(text + ' ' + link).then(() => toast('Приглашение скопировано — вставь его в чат'), () => toast(link));
