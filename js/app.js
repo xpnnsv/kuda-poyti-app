@@ -1733,18 +1733,20 @@
 
   // Приглашение другу: в Telegram — открытка через бота (картинка «Пойдём гулять?», текст и кнопка
   // «Посмотреть маршрут», окно «Отправить в чат»). Если сервер бота не указан или не ответил —
-  // обычная ссылка с текстом приглашения. kind — 'route' или 'place', code — то, что откроет ссылка
+  // ссылка на страницу-открытку (i/…): Telegram показывает под ней превью с той же картинкой.
+  // kind — 'route' или 'place', code — то, что откроет ссылка
   function shareInvite(kind, code, caption, title) {
     const link = `https://t.me/${cfg.BOT_USERNAME}?startapp=${code}`;
     const plain = () => {
-      // запасная ссылка на сайт: открывает то же самое в браузере, даже если у бота не включено
-      // главное мини-приложение (тогда Telegram на ссылку t.me/…?startapp отвечает «BOT_INVALID»)
-      const web = new URL('./?startapp=' + code, location.href).href;
-      const text = `${caption}\n\nНе открывается в Telegram? Вот ссылка: ${web}`; // переносы строк Telegram сохраняет
-      if (inTelegram) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
-      else if (navigator.share) navigator.share({ title, text, url: link }).catch(() => {});
-      else if (navigator.clipboard) navigator.clipboard.writeText(text + ' ' + link).then(() => toast('Приглашение скопировано — вставь его в чат'), () => toast(link));
-      else toast(link);
+      // у готовых маршрутов и мест с фото — своя открытка (tools/make-invites.ps1), у остальных — общая.
+      // Со страницы открытки открывается и Telegram, и сайт (если у бота не включено мини-приложение — «BOT_INVALID»)
+      const own = (window.INVITE_CARDS || []).includes(code);
+      const page = new URL(own ? `i/${code}.html` : `i/${kind}.html?c=${code}`, location.href).href;
+      const text = `${caption}\n\nОткрыть сразу в Telegram: ${link}`; // переносы строк Telegram сохраняет
+      if (inTelegram) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(page)}&text=${encodeURIComponent(text)}`);
+      else if (navigator.share) navigator.share({ title, text, url: page }).catch(() => {});
+      else if (navigator.clipboard) navigator.clipboard.writeText(text + '\n' + page).then(() => toast('Приглашение скопировано — вставь его в чат'), () => toast(page));
+      else toast(page);
     };
     haptic.impact();
     const server = (cfg.BOT_SERVER_URL || '').trim().replace(/\/$/, '');
